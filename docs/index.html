@@ -2,7 +2,12 @@
   laydoh demo - Clay layout logic written in yap, running in the
   browser via yap's -bcc=emcc backend. Card 0 (bottom-left) animates its own
   width every frame so its text visibly reflows/wraps live; the whole page
-  also re-lays-out on window resize.
+  also re-lays-out on window resize. Content taller than the viewport (e.g.
+  the stacked mobile layout below 600px) scrolls via wheel/touch-drag --
+  handled entirely by Clay itself (a .clip container on the root element,
+  fed a scroll offset renderer.js accumulates from input events) rather than
+  the browser's own scrolling, which stays disabled on purpose (see the
+  overflow: hidden below) so the layout keeps behaving like a fixed canvas.
 
   Usage:
     1. Build libclay_wasm.a (once, or after changing wrapper.c): same recipe
@@ -42,6 +47,10 @@
     position: relative;
     width: 100%;
     height: 100%;
+    /* Scrolling is implemented by Clay (see renderer.js), not the browser --
+       touch-action: none stops mobile browsers from also trying to pan/
+       bounce the page on their own in response to the same touch input. */
+    touch-action: none;
   }
   .cmd-rect { position: absolute; }
   .cmd-text {

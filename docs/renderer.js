@@ -87,6 +87,67 @@ function currentSize() {
   return [window.innerWidth, window.innerHeight];
 }
 
+// Virtual scroll: the page itself never scrolls (html/body keep
+// overflow:hidden) -- instead wheel/touch-drag input accumulates into a
+// pixel delta that app_update() feeds straight to Clay as a childOffset on
+// the root clip container, which is what actually repositions content.
+// Accumulated since the last rendered frame, then reset to zero once sent,
+// matching dt's own "since last frame" semantics.
+let pendingScrollDeltaY = 0;
+
+window.addEventListener(
+  "wheel",
+  (e) => {
+    // DOM_DELTA_LINE / DOM_DELTA_PAGE (deltaMode 1 / 2) report in lines/pages
+    // rather than pixels on some browsers/devices; approximate both back to
+    // pixels so the accumulated delta stays in the same units app_update
+    // already treats boundingBox coordinates in.
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) {
+      dy *= 16;
+    } else if (e.deltaMode === 2) {
+      dy *= window.innerHeight;
+    }
+    pendingScrollDeltaY += dy;
+    e.preventDefault();
+  },
+  { passive: false }
+);
+
+let touchLastY = null;
+
+window.addEventListener(
+  "touchstart",
+  (e) => {
+    touchLastY = e.touches[0].clientY;
+  },
+  { passive: true }
+);
+
+window.addEventListener(
+  "touchmove",
+  (e) => {
+    if (touchLastY !== null) {
+      const y = e.touches[0].clientY;
+      // Dragging a finger up should reveal content further down the page --
+      // the same sign convention wheel's deltaY already uses (positive =
+      // scroll down), so this is the negated finger movement.
+      pendingScrollDeltaY += touchLastY - y;
+      touchLastY = y;
+    }
+    e.preventDefault();
+  },
+  { passive: false }
+);
+
+window.addEventListener(
+  "touchend",
+  () => {
+    touchLastY = null;
+  },
+  { passive: true }
+);
+
 let lastTime = performance.now();
 
 function frame(now) {
@@ -94,7 +155,8 @@ function frame(now) {
   lastTime = now;
 
   const [w, h] = currentSize();
-  window._app_update(w, h, dt);
+  window._app_update(w, h, dt, pendingScrollDeltaY);
+  pendingScrollDeltaY = 0;
 
   const ptr = window._app_get_draw_commands();
   const count = window._app_get_draw_command_count();

@@ -39,6 +39,26 @@ yStmt fn element(yExpr decl_ptr, yStmt body) {
     ret yapi->block(list);
 }
 
+// Same as element() above, but opens with an explicit, caller-supplied id
+// (Clay__OpenElementWithId instead of Clay__OpenElement's auto-id) -- needed
+// wherever a later frame has to look the element back up by id (e.g.
+// Clay_GetScrollContainerData for a scroll/clip container), since an
+// auto-generated id has no predictable value to query for.
+//
+// Call as: laydoh->element_with_id:(id, #decl@, { ...children... });
+yStmt fn element_with_id(yExpr id_expr, yExpr decl_ptr, yStmt body) {
+    _ open_call = yapi->expr_stmt(yapi->call1(yapi->var_value(c"clay_Clay__OpenElementWithId"), id_expr));
+    _ configure_call = yapi->expr_stmt(yapi->call1(yapi->var_value(c"clay_Clay__ConfigureOpenElementPtr"), decl_ptr));
+    _ close_call = yapi->expr_stmt(yapi->call0(yapi->var_value(c"clay_Clay__CloseElement")));
+
+    _ list = yapi->stmt_list_new();
+    list = yapi->stmt_list_push(list, open_call);
+    list = yapi->stmt_list_push(list, configure_call);
+    list = yapi->stmt_list_push(list, body);
+    list = yapi->stmt_list_push(list, close_call);
+    ret yapi->block(list);
+}
+
 // CLAY_TEXT()-style text leaf: builds the config and opens the text element
 // in one call, replacing the text_cfg(...) + open_text(...) pair every demo
 // was hand-duplicating. Text elements never have children (no body param --

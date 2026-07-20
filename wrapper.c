@@ -303,6 +303,16 @@ Clay_Padding clay_padding_all(int32_t padding) {
 }
 
 __attribute__((visibility("default")))
+Clay_Padding clay_padding_xy(int32_t horizontal, int32_t vertical) {
+    Clay_Padding p;
+    p.left = (uint16_t)horizontal;
+    p.right = (uint16_t)horizontal;
+    p.top = (uint16_t)vertical;
+    p.bottom = (uint16_t)vertical;
+    return p;
+}
+
+__attribute__((visibility("default")))
 Clay_Color clay_color(float r, float g, float b, float a) {
     Clay_Color c;
     c.r = r;
