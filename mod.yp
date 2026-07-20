@@ -1,0 +1,7 @@
+module laydoh {
+    version: "0.0.1",
+    prefix: "clay_"
+}
+
+import "binds.yp"
+import "sugar.yp"

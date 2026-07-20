@@ -1,0 +1,223 @@
+// Hand-written sugar on top of the auto-generated bindings; `make bindings` never touches this file.
+//
+// Naming: binds.yp's raw Clay_*/Clay__* passthroughs keep the C library's own
+// names (expected -- they mirror the real API 1:1), but everything declared
+// here is reached through the "laydoh->" module prefix (or a "value:method"
+// call) by EXTERNAL callers already, so repeating "clay" in the name would
+// just be noise. Match the clay-less style binds.yp's own hand-added helpers
+// already use (color, sizing_grow, padding_all, set_child_gap, ...).
+//
+// Within this file, calls to binds.yp/sugar.yp siblings are written
+// unqualified (no "laydoh->") -- this file is loaded via mod.yp's own
+// `import "sugar.yp"`, so it's built as part of the laydoh module itself,
+// sharing binds.yp's scope directly; the "laydoh->" prefix is only needed
+// from OUTSIDE the module (confirmed directly: an unqualified sibling call
+// here compiles and links fine).
+
+// CLAY()-style scoped element macro: opens+configures the element, splices
+// the caller's `{ ... }` block in as the children, then closes -- one call
+// instead of a manual Clay__OpenElement()/Clay__ConfigureOpenElementPtr()/
+// .../Clay__CloseElement() triad with a hand-tracked close comment.
+//
+// Call as: laydoh->element:(#decl@, { ...children... });
+// (the body block goes INSIDE the parens, comma-separated after decl@ -- the
+// grammar has no "block after the closing paren" form.)
+yStmt fn element(yExpr decl_ptr, yStmt body) {
+    // Referencing a sibling from INSIDE macro/yapi-builder code (unlike the
+    // plain function bodies below) needs the function's real mangled C name,
+    // not the unqualified yap-level spelling -- see io/sugar.yp's own print()
+    // macro for the same pattern. "clay_" is laydoh's module prefix (mod.yp).
+    _ open_call = yapi->expr_stmt(yapi->call0(yapi->var_value(c"clay_Clay__OpenElement")));
+    _ configure_call = yapi->expr_stmt(yapi->call1(yapi->var_value(c"clay_Clay__ConfigureOpenElementPtr"), decl_ptr));
+    _ close_call = yapi->expr_stmt(yapi->call0(yapi->var_value(c"clay_Clay__CloseElement")));
+
+    _ list = yapi->stmt_list_new();
+    list = yapi->stmt_list_push(list, open_call);
+    list = yapi->stmt_list_push(list, configure_call);
+    list = yapi->stmt_list_push(list, body);
+    list = yapi->stmt_list_push(list, close_call);
+    ret yapi->block(list);
+}
+
+// CLAY_TEXT()-style text leaf: builds the config and opens the text element
+// in one call, replacing the text_cfg(...) + open_text(...) pair every demo
+// was hand-duplicating. Text elements never have children (no body param --
+// there's nothing to scope).
+none fn text(byte@ s, f32 r, f32 g, f32 b, i32 font_size) {
+    Clay_TextElementConfig cfg;
+    cfg = zero_text_element_config();
+    cfg.textColor = color(r, g, b, 255.0);
+    set_font_size(cfg@, font_size);
+    cfg.wrapMode = 0; // CLAY_TEXT_WRAP_WORDS -- wrap to the parent's width instead of overflowing it
+
+    Clay_String str;
+    str = string_from_cstr(s);
+    Clay__OpenTextElement(str, cfg);
+}
+
+// ---- clay-less names for the rest of binds.yp's raw Clay_*/Clay__* API ----
+//
+// Each raw function below becomes either an instance method (when it takes a
+// value naturally belonging to one of Clay's own struct types as its first
+// argument) or a plain clay-less-named passthrough (when it doesn't -- most
+// of Clay's API implicitly operates on "the current context"
+// (Clay_GetCurrentContext/Clay_SetCurrentContext), which is itself an opaque
+// `type Clay_Context` with no struct/union/enum body -- yap's method-subject
+// check requires one (confirmed directly: "Subject type must be a named
+// struct, union or enum"), so context-implicit functions and Clay_Context
+// itself can only ever get the plain-function treatment, never a method).
+// The three Clay__Open/Configure/CloseElement + Clay__OpenTextElement
+// primitives aren't repeated here -- they're internal to element()/text()
+// above; call those instead of reaching for the raw primitives directly.
+
+// -- methods --
+
+Clay_Context@ fn Clay_Arena arena:initialize(Clay_Dimensions layout_dimensions, Clay_ErrorHandler error_handler) {
+    ret Clay_Initialize(arena, layout_dimensions, error_handler);
+}
+
+Clay_ElementId fn Clay_String key:hash(i32 seed) {
+    ret Clay__HashString(key, seed);
+}
+
+Clay_ElementId fn Clay_String key:hash_with_offset(i32 offset, i32 seed) {
+    ret Clay__HashStringWithOffset(key, offset, seed);
+}
+
+Clay_ElementId fn Clay_String id_string:element_id() {
+    ret Clay_GetElementId(id_string);
+}
+
+Clay_ElementId fn Clay_String id_string:element_id_with_index(i32 index) {
+    ret Clay_GetElementIdWithIndex(id_string, index);
+}
+
+Clay_ElementData fn Clay_ElementId id:data() {
+    ret Clay_GetElementData(id);
+}
+
+bool fn Clay_ElementId id:pointer_over() {
+    ret Clay_PointerOver(id);
+}
+
+Clay_ScrollContainerData fn Clay_ElementId id:scroll_container_data() {
+    ret Clay_GetScrollContainerData(id);
+}
+
+// Value subject (not @) because Clay_RenderCommandArray_Get's own pointer
+// param is just for cheap by-ref passing of a small {capacity, length, data}
+// header -- taking a fresh address of the local copy below points at the
+// same underlying render command storage either way.
+Clay_RenderCommand@ fn Clay_RenderCommandArray arr:get(i32 index) {
+    ret Clay_RenderCommandArray_Get(arr@, index);
+}
+
+bool fn Clay_TransitionCallbackArguments args:ease_out() {
+    ret Clay_EaseOut(args);
+}
+
+// -- plain functions (context-implicit or no natural receiver) --
+
+i32 fn min_memory_size() {
+    ret Clay_MinMemorySize();
+}
+
+Clay_Arena fn create_arena(i64 capacity, none@ memory) {
+    ret Clay_CreateArenaWithCapacityAndMemory(capacity, memory);
+}
+
+none fn set_pointer_state(Clay_Vector2 position, bool pointer_down) {
+    Clay_SetPointerState(position, pointer_down);
+}
+
+Clay_PointerData fn get_pointer_state() {
+    ret Clay_GetPointerState();
+}
+
+Clay_Context@ fn get_current_context() {
+    ret Clay_GetCurrentContext();
+}
+
+none fn set_current_context(Clay_Context@ context) {
+    Clay_SetCurrentContext(context);
+}
+
+none fn update_scroll_containers(bool enable_drag_scrolling, Clay_Vector2 scroll_delta, f32 delta_time) {
+    Clay_UpdateScrollContainers(enable_drag_scrolling, scroll_delta, delta_time);
+}
+
+Clay_Vector2 fn get_scroll_offset() {
+    ret Clay_GetScrollOffset();
+}
+
+none fn set_layout_dimensions(Clay_Dimensions dimensions) {
+    Clay_SetLayoutDimensions(dimensions);
+}
+
+Clay_Dimensions fn get_layout_dimensions() {
+    ret Clay_GetLayoutDimensions();
+}
+
+none fn begin_layout() {
+    Clay_BeginLayout();
+}
+
+Clay_RenderCommandArray fn end_layout(f32 delta_time) {
+    ret Clay_EndLayout(delta_time);
+}
+
+i32 fn get_open_element_id() {
+    ret Clay_GetOpenElementId();
+}
+
+bool fn hovered() {
+    ret Clay_Hovered();
+}
+
+none fn on_hover((none fn Clay_ElementId, Clay_PointerData, none@) on_hover_function, none@ user_data) {
+    Clay_OnHover(on_hover_function, user_data);
+}
+
+Clay_ElementIdArray fn get_pointer_over_ids() {
+    ret Clay_GetPointerOverIds();
+}
+
+none fn set_measure_text_function((Clay_Dimensions fn Clay_StringSlice, Clay_TextElementConfig@, none@) measure_text_function, none@ user_data) {
+    Clay_SetMeasureTextFunction(measure_text_function, user_data);
+}
+
+none fn set_query_scroll_offset_function((Clay_Vector2 fn i32, none@) query_scroll_offset_function, none@ user_data) {
+    Clay_SetQueryScrollOffsetFunction(query_scroll_offset_function, user_data);
+}
+
+none fn set_debug_mode_enabled(bool enabled) {
+    Clay_SetDebugModeEnabled(enabled);
+}
+
+bool fn is_debug_mode_enabled() {
+    ret Clay_IsDebugModeEnabled();
+}
+
+none fn set_culling_enabled(bool enabled) {
+    Clay_SetCullingEnabled(enabled);
+}
+
+i32 fn get_max_element_count() {
+    ret Clay_GetMaxElementCount();
+}
+
+none fn set_max_element_count(i32 max_element_count) {
+    Clay_SetMaxElementCount(max_element_count);
+}
+
+i32 fn get_max_measure_text_cache_word_count() {
+    ret Clay_GetMaxMeasureTextCacheWordCount();
+}
+
+none fn set_max_measure_text_cache_word_count(i32 max_measure_text_cache_word_count) {
+    Clay_SetMaxMeasureTextCacheWordCount(max_measure_text_cache_word_count);
+}
+
+none fn reset_measure_text_cache() {
+    Clay_ResetMeasureTextCache();
+}

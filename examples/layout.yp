@@ -1,0 +1,64 @@
+import laydoh
+import stdlib
+import io
+
+none fn on_error(Clay_ErrorData err) {
+    io->print:(c"clay error: %s\n", [err.errorText.chars]);
+}
+
+Clay_Dimensions fn measure_text(Clay_StringSlice text, Clay_TextElementConfig@ config, none@ user_data) {
+    Clay_Dimensions dims;
+    dims.width = text.length.(f32) * 8.0;
+    dims.height = 16.0;
+    ret dims;
+}
+
+i32 fn main() {
+    i32 mem_size;
+    mem_size = laydoh->Clay_MinMemorySize();
+    none@ memory;
+    memory = stdlib->malloc(mem_size.(i64));
+
+    Clay_Arena arena;
+    arena = laydoh->Clay_CreateArenaWithCapacityAndMemory(mem_size.(i64), memory);
+
+    Clay_Dimensions screen;
+    screen.width = 800.0;
+    screen.height = 600.0;
+
+    Clay_ErrorHandler handler;
+    handler.errorHandlerFunction = on_error;
+    handler.userData = null;
+
+    laydoh->Clay_Initialize(arena, screen, handler);
+    laydoh->Clay_SetMeasureTextFunction(measure_text, null.(none@));
+
+    laydoh->Clay_BeginLayout();
+
+    Clay_ElementDeclaration root;
+    root = laydoh->zero_element_declaration();
+    root.backgroundColor = laydoh->color(30.0, 40.0, 55.0, 255.0);
+    root.cornerRadius = laydoh->corner_radius_all(8.0);
+    root.layout.sizing.width = laydoh->sizing_fixed(200.0);
+    root.layout.sizing.height = laydoh->sizing_fixed(100.0);
+    root.layout.padding = laydoh->padding_all(10);
+
+    laydoh->Clay__OpenElement();
+    laydoh->Clay__ConfigureOpenElementPtr(root@);
+    laydoh->Clay__CloseElement();
+
+    Clay_RenderCommandArray commands;
+    commands = laydoh->Clay_EndLayout(0.016);
+
+    io->print:(c"render command count: %d\n", [commands.length]);
+
+    Clay_RenderCommand@ cmd;
+    cmd = laydoh->Clay_RenderCommandArray_Get(commands@, 0);
+    if (cmd.(i64) != 0) {
+        i32 r;
+        r = cmd:[0].renderData.rectangle.backgroundColor.r.(i32);
+        io->print:(c"first command bg.r = %d\n", [r]);
+    }
+
+    ret 0;
+}

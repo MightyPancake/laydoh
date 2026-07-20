@@ -1,0 +1,57 @@
+<!--
+  laydoh demo - Clay layout logic written in yap, running in the
+  browser via yap's -bcc=emcc backend. Card 0 (bottom-left) animates its own
+  width every frame so its text visibly reflows/wraps live; the whole page
+  also re-lays-out on window resize.
+
+  Usage:
+    1. Build libclay_wasm.a (once, or after changing wrapper.c): same recipe
+       as libclay.a's own build, with emcc instead of gcc --
+         emcc -fPIC -c wrapper.c -o wrapper_wasm.o -I. && \
+         ar rcs libclay_wasm.a wrapper_wasm.o && rm wrapper_wasm.o
+    2. yap -bcc=emcc -bexport=app_init -bexport=app_update \
+           -bexport=app_get_draw_commands -bexport=app_get_draw_command_count \
+           -o examples/web/laydoh_demo.js examples/demo_wasm.yp
+    3. python3 -m http.server (from this directory)
+    4. open http://localhost:8000/
+
+  laydoh_demo.js/.wasm are committed as checked-in build artifacts so steps
+  3/4 work even without a yap+emcc toolchain on hand; re-run steps 1-2 after
+  changing wrapper.c/demo_wasm.yp to refresh them.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>laydoh demo</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #13181f;
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  #stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .cmd-rect { position: absolute; }
+  .cmd-text {
+    position: absolute;
+    white-space: pre-wrap;
+    line-height: 1.2;
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <script src="renderer.js"></script>
+  <script src="laydoh_demo.js"></script>
+</body>
+</html>

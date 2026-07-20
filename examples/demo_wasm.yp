@@ -1,0 +1,356 @@
+// Live, JS-driven variant of demo.yp: same hero+3-card layout, but shaped as
+// app_init/app_update/app_get_draw_commands/app_get_draw_command_count so a
+// browser can call into it every animation frame, mirroring nullptr's
+// clay.h/WASM demo (/home/mightypancake/nullptr/src/main.c). Compiled with
+// `yap -bcc=emcc`, no main() -- yap auto-adds -s INVOKE_RUN=0 for that shape.
+//
+// yap has no top-level mutable variables (a bare top-level var_decl parses
+// but the frontend has no codegen path for it -- "Unhandled declaration").
+// That rules out C-style file-scope statics for g_initialized/g_draw_commands/
+// g_draw_command_count the way nullptr's main.c keeps them. Instead this
+// piggybacks extra scratch memory onto Clay's own arena allocation and uses
+// Clay_GetCurrentContext() -- a pointer Clay itself keeps as a persistent
+// static inside libclay, alive for the wasm instance's whole lifetime -- as
+// the anchor to re-derive that scratch address from any exported function,
+// with no yap-level global needed:
+//
+//   scratch_base = Clay_GetCurrentContext() + Clay_MinMemorySize()
+//
+// Clay_MinMemorySize() is exactly the byte count Clay itself allocates out of
+// the arena starting at the context pointer, so everything from
+// scratch_base onward is guaranteed untouched by Clay. The one-time malloc in
+// app_init() reserves min_mem_size (Clay's own region) + 64 (cacheline-
+// alignment slack Clay_Initialize applies to the raw pointer before placing
+// the context) + SCRATCH_SIZE (ours) so that region is always valid.
+//
+// Scratch layout (all offsets relative to scratch_base):
+//   +0  i32  draw command count
+//   +4  f32  accumulated elapsed seconds (drives the card-0 width animation)
+//   +8  draw commands, DRAW_COMMAND_SIZE bytes each, packed by hand since
+//       yap has no #pragma pack -- see write_rect_command/write_text_command.
+//       Field layout mirrors nullptr's own packed DrawCommand exactly, plus
+//       one extra trailing i32 corner-radius field (nullptr's demo has no
+//       rounded corners; laydoh's does):
+//         +0  i32 type (1 = rect, 2 = text)
+//         +4  f32 x
+//         +8  f32 y
+//         +12 f32 width
+//         +16 f32 height
+//         +20 byte r, +21 byte g, +22 byte b, +23 byte a
+//         +24 byte fontSize_lo,  +25 byte fontSize_hi
+//         +26 byte textLength_lo, +27 byte textLength_hi
+//         +28 i32 text_ptr (address of text bytes in this same wasm memory,
+//             0 for rect commands)
+//         +32 i32 corner_radius (0 for text commands)
+//       total 36 bytes -- keep DRAW_COMMAND_SIZE in renderer.js in sync.
+import laydoh
+
+none fn on_error(Clay_ErrorData err) {
+    // No io import here on purpose (see wrapper.c's clay_malloc comment --
+    // yap's stdlib/io modules don't build for wasm today), so layout errors
+    // just get dropped. Clay's own error text isn't otherwise reachable from
+    // JS; that's an acceptable trade for a demo, not a real error channel.
+    err.errorType.(none);
+}
+
+Clay_Dimensions fn measure_text(Clay_StringSlice text, Clay_TextElementConfig@ config, none@ user_data) {
+    i32 font_size;
+    font_size = config.fontSize_lo.(i32) + (config.fontSize_hi.(i32) * 256);
+
+    Clay_Dimensions dims;
+    dims.width = text.length.(f32) * (font_size.(f32) * 0.56);
+    dims.height = font_size.(f32) * 1.2;
+    ret dims;
+}
+
+// ---- raw memory pokes at computed byte offsets (no yap struct involved,
+// so there's no yap-side padding/alignment to worry about matching) ----
+
+none fn write_i32(i32 addr, i32 val) {
+    i32@ p;
+    p = addr.(i32@);
+    p. = val;
+}
+
+none fn write_f32(i32 addr, f32 val) {
+    f32@ p;
+    p = addr.(f32@);
+    p. = val;
+}
+
+none fn write_byte(i32 addr, i32 val) {
+    byte@ p;
+    p = addr.(byte@);
+    p. = val.(byte);
+}
+
+i32 fn read_i32(i32 addr) {
+    i32@ p;
+    p = addr.(i32@);
+    ret p.;
+}
+
+f32 fn read_f32(i32 addr) {
+    f32@ p;
+    p = addr.(f32@);
+    ret p.;
+}
+
+// scratch_base_addr() re-derives the same address every time it's called,
+// from Clay's own persistent context pointer -- see header comment.
+i32 fn scratch_base_addr() {
+    Clay_Context@ ctx;
+    ctx = laydoh->get_current_context();
+    i32 min_mem;
+    min_mem = laydoh->min_memory_size();
+    ret ctx.(i32) + min_mem;
+}
+
+none fn write_rect_command(i32 cmd_addr, f32 x, f32 y, f32 w, f32 h, i32 r, i32 g, i32 b, i32 a, i32 corner_radius) {
+    write_i32(cmd_addr + 0, 1);
+    write_f32(cmd_addr + 4, x);
+    write_f32(cmd_addr + 8, y);
+    write_f32(cmd_addr + 12, w);
+    write_f32(cmd_addr + 16, h);
+    write_byte(cmd_addr + 20, r);
+    write_byte(cmd_addr + 21, g);
+    write_byte(cmd_addr + 22, b);
+    write_byte(cmd_addr + 23, a);
+    write_byte(cmd_addr + 24, 0);
+    write_byte(cmd_addr + 25, 0);
+    write_byte(cmd_addr + 26, 0);
+    write_byte(cmd_addr + 27, 0);
+    write_i32(cmd_addr + 28, 0);
+    write_i32(cmd_addr + 32, corner_radius);
+}
+
+none fn write_text_command(i32 cmd_addr, f32 x, f32 y, f32 w, f32 h, i32 r, i32 g, i32 b, i32 a, i32 font_size, i32 text_length, i32 text_ptr) {
+    i32 fs_hi; i32 fs_lo; i32 tl_hi; i32 tl_lo;
+    fs_hi = font_size / 256;
+    fs_lo = font_size - fs_hi * 256;
+    tl_hi = text_length / 256;
+    tl_lo = text_length - tl_hi * 256;
+
+    write_i32(cmd_addr + 0, 2);
+    write_f32(cmd_addr + 4, x);
+    write_f32(cmd_addr + 8, y);
+    write_f32(cmd_addr + 12, w);
+    write_f32(cmd_addr + 16, h);
+    write_byte(cmd_addr + 20, r);
+    write_byte(cmd_addr + 21, g);
+    write_byte(cmd_addr + 22, b);
+    write_byte(cmd_addr + 23, a);
+    write_byte(cmd_addr + 24, fs_lo);
+    write_byte(cmd_addr + 25, fs_hi);
+    write_byte(cmd_addr + 26, tl_lo);
+    write_byte(cmd_addr + 27, tl_hi);
+    write_i32(cmd_addr + 28, text_ptr);
+    write_i32(cmd_addr + 32, 0);
+}
+
+i32 fn app_init(i32 width, i32 height) {
+    Clay_Context@ existing;
+    existing = laydoh->get_current_context();
+    if (existing.(i32) != 0) {
+        Clay_Dimensions screen = [.width = width.(f32), .height = height.(f32)];
+        laydoh->set_layout_dimensions(screen);
+        ret 0;
+    }
+
+    i32 min_mem;
+    min_mem = laydoh->min_memory_size();
+    // 64: Clay_Initialize's own cacheline alignment slack. 8: scratch header
+    // (count + elapsed). 64 * 36: room for up to 64 draw commands.
+    i32 total_size;
+    total_size = min_mem + 64 + 8 + (64 * 36);
+
+    none@ memory;
+    memory = laydoh->malloc(total_size.(i64));
+
+    Clay_Arena arena;
+    arena = laydoh->create_arena(min_mem.(i64), memory);
+
+    Clay_Dimensions screen = [.width = width.(f32), .height = height.(f32)];
+    Clay_ErrorHandler handler = [.errorHandlerFunction = on_error, .userData = null];
+
+    arena:initialize(screen, handler);
+    laydoh->set_measure_text_function(measure_text, null.(none@));
+
+    ret 0;
+}
+
+i32 fn app_update(i32 width, i32 height, f32 dt) {
+    app_init(width, height);
+
+    Clay_Dimensions screen = [.width = width.(f32), .height = height.(f32)];
+    laydoh->set_layout_dimensions(screen);
+
+    i32 base;
+    base = scratch_base_addr();
+
+    f32 elapsed;
+    elapsed = read_f32(base + 4) + dt;
+    write_f32(base + 4, elapsed);
+
+    // Triangle wave in [0, 1] over a 4s period, driving card 0's fixed
+    // width between 160 and 360 so its text visibly reflows/wraps live.
+    f32 period = 4.0;
+    i32 cycles;
+    cycles = (elapsed / period).(i32);
+    f32 phase;
+    phase = elapsed - cycles.(f32) * period;
+    f32 half;
+    half = period / 2.0;
+    f32 tri;
+    if (phase < half) {
+        tri = phase / half;
+    } else {
+        tri = 2.0 - (phase / half);
+    }
+    f32 card0_width;
+    card0_width = 160.0 + tri * 200.0;
+
+    laydoh->begin_layout();
+
+    Clay_ElementDeclaration root = [
+        .backgroundColor = laydoh->color(19.0, 24.0, 33.0, 255.0),
+        .layout = [
+            .sizing = [.width = laydoh->sizing_grow(0.0, 0.0), .height = laydoh->sizing_grow(0.0, 0.0)].(Clay_Sizing),
+            .layoutDirection = 1,
+            .padding = laydoh->padding_all(20),
+        ].(Clay_LayoutConfig),
+    ];
+    laydoh->set_child_gap(root.layout@, 14);
+    laydoh->element:(#root@, {
+        Clay_ElementDeclaration hero = [
+            .backgroundColor = laydoh->color(34.0, 43.0, 58.0, 255.0),
+            .cornerRadius = laydoh->corner_radius_all(10.0),
+            .layout = [
+                .sizing = [.width = laydoh->sizing_grow(0.0, 0.0), .height = laydoh->sizing_fit(0.0, 0.0)].(Clay_Sizing),
+                .layoutDirection = 1,
+                .padding = laydoh->padding_all(16),
+            ].(Clay_LayoutConfig),
+        ];
+        laydoh->set_child_gap(hero.layout@, 8);
+        laydoh->element:(#hero@, {
+            laydoh->text(c"Hello from laydoh! YAP bindings for clay.h :D", 245.0, 245.0, 245.0, 36);
+            laydoh->text(c"Layout logic is written in yap and ran live with bindings clay.h C library. This is running almost entirely in WASM!", 200.0, 205.0, 215.0, 20);
+        });
+
+        Clay_ElementDeclaration cards_row = [
+            .layout = [
+                .sizing = [.width = laydoh->sizing_grow(0.0, 0.0), .height = laydoh->sizing_grow(0.0, 0.0)].(Clay_Sizing),
+                .layoutDirection = 0,
+            ].(Clay_LayoutConfig),
+        ];
+        laydoh->set_child_gap(cards_row.layout@, 12);
+        laydoh->element:(#cards_row@, {
+            i32 i = 0;
+            while (i < 3) {
+                Clay_SizingAxis card_width;
+                if (i == 0) {
+                    card_width = laydoh->sizing_fixed(card0_width);
+                } else {
+                    card_width = laydoh->sizing_grow(0.0, 0.0);
+                }
+
+                Clay_ElementDeclaration card = [
+                    .backgroundColor = laydoh->color(40.0 + i.(f32) * 10.0, 55.0 + i.(f32) * 8.0, 76.0 + i.(f32) * 6.0, 255.0),
+                    .cornerRadius = laydoh->corner_radius_all(8.0),
+                    .layout = [
+                        .sizing = [.width = card_width, .height = laydoh->sizing_fit(0.0, 0.0)].(Clay_Sizing),
+                        .layoutDirection = 1,
+                        .padding = laydoh->padding_all(14),
+                    ].(Clay_LayoutConfig),
+                ];
+                laydoh->set_child_gap(card.layout@, 8);
+                laydoh->element:(#card@, {
+                    if (i == 0) {
+                        laydoh->text(c"Live resize", 230.0, 230.0, 230.0, 24);
+                        laydoh->text(c"This card's width is animated every frame from yap. Watch this text reflow as it narrows and widens.", 180.0, 180.0, 180.0, 18);
+                    } else if (i == 1) {
+                        laydoh->text(c"Lorem ipsum", 230.0, 230.0, 230.0, 24);
+                        laydoh->text(c"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.", 180.0, 180.0, 180.0, 18);
+                    } else {
+                        laydoh->text(c"All star", 230.0, 230.0, 230.0, 24);
+                        laydoh->text(c"Somebody once told me, the world is gonna roll me. I ain't the sharpest tool in the shed.  She was looking kind of dumb with her finger and her thumb.  In the shape of an \"L\" on her forehead.", 180.0, 180.0, 180.0, 18);
+                    }
+                });
+                i = i + 1;
+            }
+        });
+    });
+
+    Clay_RenderCommandArray commands;
+    commands = laydoh->end_layout(dt);
+
+    i32 commands_base;
+    commands_base = base + 8;
+
+    i32 count = 0;
+    i32 ci = 0;
+    while (ci < commands.length) {
+        Clay_RenderCommand@ cmd;
+        cmd = commands:get(ci);
+
+        if (cmd.commandType == 1) {
+            if (count < 64) {
+                i32 cmd_addr;
+                cmd_addr = commands_base + count * 36;
+
+                f32 x; f32 y; f32 w; f32 h;
+                x = cmd.boundingBox.x;
+                y = cmd.boundingBox.y;
+                w = cmd.boundingBox.width;
+                h = cmd.boundingBox.height;
+
+                i32 r; i32 g; i32 b; i32 a; i32 cr;
+                r = cmd.renderData.rectangle.backgroundColor.r.(i32);
+                g = cmd.renderData.rectangle.backgroundColor.g.(i32);
+                b = cmd.renderData.rectangle.backgroundColor.b.(i32);
+                a = cmd.renderData.rectangle.backgroundColor.a.(i32);
+                cr = cmd.renderData.rectangle.cornerRadius.topLeft.(i32);
+
+                write_rect_command(cmd_addr, x, y, w, h, r, g, b, a, cr);
+                count = count + 1;
+            }
+        } else if (cmd.commandType == 3) {
+            if (count < 64) {
+                i32 cmd_addr;
+                cmd_addr = commands_base + count * 36;
+
+                f32 x; f32 y; f32 w; f32 h;
+                x = cmd.boundingBox.x;
+                y = cmd.boundingBox.y;
+                w = cmd.boundingBox.width;
+                h = cmd.boundingBox.height;
+
+                i32 r; i32 g; i32 b; i32 a; i32 fs; i32 tlen; i32 tptr;
+                r = cmd.renderData.text.textColor.r.(i32);
+                g = cmd.renderData.text.textColor.g.(i32);
+                b = cmd.renderData.text.textColor.b.(i32);
+                a = cmd.renderData.text.textColor.a.(i32);
+                fs = cmd.renderData.text.fontSize_lo.(i32) + (cmd.renderData.text.fontSize_hi.(i32) * 256);
+                tlen = cmd.renderData.text.stringContents.length;
+                tptr = cmd.renderData.text.stringContents.chars.(i32);
+
+                write_text_command(cmd_addr, x, y, w, h, r, g, b, a, fs, tlen, tptr);
+                count = count + 1;
+            }
+        }
+
+        ci = ci + 1;
+    }
+
+    write_i32(base + 0, count);
+
+    ret 0;
+}
+
+i32 fn app_get_draw_commands() {
+    ret scratch_base_addr() + 8;
+}
+
+i32 fn app_get_draw_command_count() {
+    ret read_i32(scratch_base_addr());
+}
