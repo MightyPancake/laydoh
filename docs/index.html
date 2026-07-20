@@ -11,13 +11,16 @@
          ar rcs libclay_wasm.a wrapper_wasm.o && rm wrapper_wasm.o
     2. yap -bcc=emcc -bexport=app_init -bexport=app_update \
            -bexport=app_get_draw_commands -bexport=app_get_draw_command_count \
-           -o examples/web/laydoh_demo.js examples/demo_wasm.yp
+           -o docs/laydoh_demo.js examples/demo_wasm.yp
     3. python3 -m http.server (from this directory)
     4. open http://localhost:8000/
 
+  (steps 1-2 are also just `make wasm_demo` from the repo root.)
+
   laydoh_demo.js/.wasm are committed as checked-in build artifacts so steps
   3/4 work even without a yap+emcc toolchain on hand; re-run steps 1-2 after
-  changing wrapper.c/demo_wasm.yp to refresh them.
+  changing wrapper.c/demo_wasm.yp to refresh them. Lives under docs/ (not
+  examples/web/) because GitHub Pages only serves a repo's root or /docs.
 -->
 <!DOCTYPE html>
 <html lang="en">

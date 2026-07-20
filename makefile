@@ -13,17 +13,19 @@ libclay_wasm.a: wrapper.c
 
 wasm_lib: libclay_wasm.a
 
-# examples/web/laydoh_demo.js/.wasm: the live browser demo. Needs emcc on
-# PATH, hence the nix-shell wrapper -- this repo doesn't otherwise assume a
-# Nix environment.
-examples/web/laydoh_demo.js: examples/demo_wasm.yp libclay_wasm.a
+# docs/laydoh_demo.js/.wasm: the live browser demo. Lives under docs/ (not
+# examples/web/) because GitHub Pages only serves from a repo's root or a
+# /docs folder -- this is also what a Pages deploy should point at. Needs
+# emcc on PATH, hence the nix-shell wrapper -- this repo doesn't otherwise
+# assume a Nix environment.
+docs/laydoh_demo.js: examples/demo_wasm.yp libclay_wasm.a
 	nix-shell -p emscripten --run "$(YAP) -bcc=emcc \
 		-bexport=app_init -bexport=app_update \
 		-bexport=app_get_draw_commands -bexport=app_get_draw_command_count \
-		-o examples/web/laydoh_demo.js examples/demo_wasm.yp"
+		-o docs/laydoh_demo.js examples/demo_wasm.yp"
 	@rm -f a.out
 
-wasm_demo: examples/web/laydoh_demo.js
+wasm_demo: docs/laydoh_demo.js
 
 clean_wasm:
-	rm -f libclay_wasm.a examples/web/laydoh_demo.js examples/web/laydoh_demo.wasm
+	rm -f libclay_wasm.a docs/laydoh_demo.js docs/laydoh_demo.wasm
