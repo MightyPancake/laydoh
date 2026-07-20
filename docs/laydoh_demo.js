@@ -1576,7 +1576,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['memory'] != 'undefined', 'missing Wasm export: memory');
   assert(typeof wasmExports['__indirect_function_table'] != 'undefined', 'missing Wasm export: __indirect_function_table');
   _app_init = Module['_app_init'] = createExportWrapper('app_init', 2);
-  _app_update = Module['_app_update'] = createExportWrapper('app_update', 9);
+  _app_update = Module['_app_update'] = createExportWrapper('app_update', 3);
   _app_get_draw_commands = Module['_app_get_draw_commands'] = createExportWrapper('app_get_draw_commands', 0);
   _app_get_draw_command_count = Module['_app_get_draw_command_count'] = createExportWrapper('app_get_draw_command_count', 0);
   _fflush = createExportWrapper('fflush', 1);

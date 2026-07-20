@@ -23,23 +23,46 @@
 // alignment slack Clay_Initialize applies to the raw pointer before placing
 // the context) + SCRATCH_SIZE (ours) so that region is always valid.
 //
-// Scrolling uses Clay's OWN scroll-container machinery (Clay_SetPointerState +
-// Clay_UpdateScrollContainers + Clay_GetScrollContainerData), matching exactly
-// how third_party/clay/examples/clay-official-website/main.c's UpdateDrawFrame
-// and third_party/clay/renderers/web/html/clay-html-renderer.html do it --
-// see those two files for the canonical reference this was checked against.
-// A first attempt hand-tracked scroll position/clamping itself instead (see
-// git history / project memory for that version); switched to Clay's own
-// APIs because (a) it's what the only two real, browser-tested Clay web
-// integrations available for comparison actually do, (b) it gets touch
-// momentum/deceleration for free, and (c) Clay_GetScrollContainerData(id)
-// (unlike Clay_GetScrollOffset(), which reads back data for "the currently
-// open element" and so needs to run between Clay__OpenElement() and its
-// config being built) can be called with an explicit id at ANY point in the
-// frame, including before root is even opened -- fitting this file's existing
-// pattern of building each Clay_ElementDeclaration as a plain local variable
-// first. Root is still opened via sugar.yp's element_with_id() (not plain
-// element()) so it carries a stable, explicit id for that lookup.
+// Scrolling is entirely NATIVE (the browser's own overflow-y, no Clay
+// scroll-container involved at all) -- see docs/renderer.js and
+// docs/index.html's #content div. Two earlier attempts used Clay's virtual
+// scroll instead (hand-tracked, then Clay_SetPointerState/UpdateScrollContainers/
+// GetScrollContainerData -- see git history / project memory), both modeled
+// on third_party/clay/examples/clay-official-website's CANVAS renderer mode.
+// That was the wrong reference: the official site actually has TWO renderer
+// modes (`ACTIVE_RENDERER_INDEX`), and its DOM/HTML-overlay mode -- the one
+// actually analogous to laydoh's own div-based renderer, not the canvas one
+// -- does the OPPOSITE: `Clay_SetExternalScrollHandlingEnabled(true)` and
+// `Clay_SetCullingEnabled(false)`, then lets the browser's real native
+// scrolling move things (reading back a real DOM element's `.scrollTop` for
+// hit-testing). Missed this distinction on the first two attempts; caught
+// after the user reported mobile scrolling felt jagged and asked to compare
+// against the official demo directly -- virtual/JS-driven scroll is
+// inherently more failure-prone on mobile (has to keep a full Clay relayout
+// + full DOM rebuild in sync with 60fps+ touch input on the main thread) than
+// just letting the browser's compositor thread do what it already does well.
+//
+// This version: root keeps `.clip.vertical = true` (see the comment right on
+// root's declaration below for exactly why -- it's NOT optional, a first
+// pass in this round tried dropping it since scrolling itself no longer
+// needs it, and the round-4 card-height bug came straight back), but its
+// `childOffset` is now a permanent `{0, 0}` instead of a live-tracked
+// position -- Clay itself never moves anything for scrolling purposes
+// anymore, it only uses the .clip flag to stop compressing hero/cards_row to
+// fit inside the viewport. Root's own height is FIT rather than
+// GROW-to-viewport (cosmetic: FIT correctly reports a SHORTER box when
+// content is shorter than the viewport instead of always stretching to
+// exactly window height, unlike GROW; doesn't change the clamping story
+// above, since that clamp is applied by root's PARENT regardless of root's
+// own sizing type). Culling is disabled once in app_init
+// (laydoh->set_culling_enabled(false)) so content below the visible viewport
+// still gets emitted as real draw commands for the DOM to lay out and the
+// browser to scroll to, instead of Clay silently dropping it for being
+// "offscreen" relative to the width/height passed to set_layout_dimensions.
+// No Clay_SetPointerState/UpdateScrollContainers/scroll-container id needed
+// at all -- root is back to a plain, auto-id element() like everything else
+// in this file (only its OWN .clip config matters here, not an id to look
+// scroll data up by).
 //
 // Scratch layout (all offsets relative to scratch_base):
 //   +0  i32  draw command count
@@ -192,11 +215,15 @@ i32 fn app_init(i32 width, i32 height) {
 
     arena:initialize(screen, handler);
     laydoh->set_measure_text_function(measure_text, null.(none@));
+    // See header comment: content below the visible viewport must still be
+    // emitted as real draw commands (not culled as "offscreen") for the
+    // browser's native scroll to have anything to scroll to.
+    laydoh->set_culling_enabled(false);
 
     ret 0;
 }
 
-i32 fn app_update(i32 width, i32 height, f32 dt, f32 pointer_x, f32 pointer_y, i32 pointer_down, i32 touch_down, f32 wheel_dx, f32 wheel_dy) {
+i32 fn app_update(i32 width, i32 height, f32 dt) {
     app_init(width, height);
 
     Clay_Dimensions screen = [.width = width.(f32), .height = height.(f32)];
@@ -208,18 +235,6 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 pointer_x, f32 pointer_y, i
     f32 elapsed;
     elapsed = read_f32(base + 4) + dt;
     write_f32(base + 4, elapsed);
-
-    // Feed Clay's own pointer/scroll-container bookkeeping, in the same
-    // order and with the same meaning as the official examples (see header
-    // comment): pointer_down is mouse-or-touch (Clay_SetPointerState just
-    // needs "is anything pressed", used for hover/click/drag-scroll hit
-    // testing), touch_down specifically gates drag-to-scroll (mouse wheel
-    // shouldn't also enable click-drag scrolling on desktop).
-    Clay_Vector2 pointer_pos = [.x = pointer_x, .y = pointer_y];
-    laydoh->set_pointer_state(pointer_pos, pointer_down != 0);
-
-    Clay_Vector2 wheel_delta = [.x = wheel_dx, .y = wheel_dy];
-    laydoh->update_scroll_containers(touch_down != 0, wheel_delta, dt);
 
     // Triangle wave in [0, 1] over a 4s period, driving card 0's fixed
     // width between 160 and 360 so its text visibly reflows/wraps live.
@@ -279,54 +294,36 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 pointer_x, f32 pointer_y, i
         cards_row_height = laydoh->sizing_grow(0.0, 0.0);
     }
 
-    Clay_String root_id_str;
-    root_id_str = laydoh->string_from_cstr(c"laydoh_root");
-    Clay_ElementId root_id;
-    root_id = root_id_str:element_id();
-
-    // Clay_GetScrollContainerData(id) works with an explicit id at any point
-    // in the frame (unlike Clay_GetScrollOffset(), see header comment), so
-    // this can run here, before root is even opened, fitting the pattern of
-    // building the whole Clay_ElementDeclaration as a local variable first.
-    // scrollPosition is a pointer into Clay's own internal, already-updated-
-    // this-frame (by update_scroll_containers above) scroll state; "found"
-    // is false only on the very first frame, before root has been declared
-    // even once, so nothing has been registered into Clay's scroll-container
-    // table yet.
-    Clay_ScrollContainerData root_scroll;
-    root_scroll = root_id:scroll_container_data();
-    Clay_Vector2 root_scroll_offset;
-    if (root_scroll.found) {
-        root_scroll_offset = root_scroll.scrollPosition.;
-    } else {
-        root_scroll_offset = [.x = 0.0, .y = 0.0].(Clay_Vector2);
-    }
-
     laydoh->begin_layout();
 
-    // .clip.vertical = true does double duty here: it lets Clay__SizeContainersAlongAxis's
-    // compression pass skip root entirely when content is taller than the viewport
-    // (clay.h ~2406-2409, "if the parent clips content in this axis direction, don't
-    // compress children") instead of squeezing hero/cards_row (and everything nested
-    // under them, cascading down to the 3 cards) to force-fit the screen -- this is
-    // also what was silently causing the previously-unresolved bug where all 3 stacked
-    // cards reported the same height regardless of their own text (confirmed by
-    // re-reading Clay's own compression algorithm, not by re-running the two disproven
-    // experiments from the prior session). It also makes Clay apply .childOffset to
-    // every descendant's position, which is what actually implements scrolling:
-    // root_scroll_offset (Clay's own tracked position, see above) shifts content up
-    // without moving root's own background rect.
+    // .clip.vertical = true (with childOffset permanently {0,0} -- see header
+    // comment) is still required even though scrolling itself is now native:
+    // Clay_BeginLayout() wraps EVERY top-level element (ours included) in its
+    // own implicit, always-CLAY_SIZING_FIXED-to-the-viewport "Clay__RootContainer"
+    // (clay.h ~4355-4372) with a default (LEFT_TO_RIGHT) layout direction --
+    // meaning root's HEIGHT is always sized as that container's CROSS axis,
+    // which clay.h ~2508 unconditionally clamps to the viewport
+    // (maxSize = parentSize - parentPadding) regardless of root's own FIT/GROW
+    // choice. That clamp only gets skipped one level down, for root's OWN
+    // children (hero/cards_row) when root is being sized as THEIR parent on
+    // the MAIN axis, and only if root itself has .clip set (clay.h
+    // ~2406-2409) -- without it, hero/cards_row (and everything cascading
+    // under them) get compressed back down to fit inside root's
+    // viewport-clamped box, reproducing the round-4 stacked-card-height bug.
+    // Confirmed directly: removed .clip in this round to try a supposedly
+    // simpler FIT-only fix, and the bug came straight back (root's own rect
+    // still reported exactly window height regardless of FIT vs GROW).
     Clay_ElementDeclaration root = [
         .backgroundColor = laydoh->color(19.0, 24.0, 33.0, 255.0),
-        .clip = [.horizontal = false, .vertical = true, .childOffset = root_scroll_offset].(Clay_ClipElementConfig),
+        .clip = [.horizontal = false, .vertical = true, .childOffset = [.x = 0.0, .y = 0.0].(Clay_Vector2)].(Clay_ClipElementConfig),
         .layout = [
-            .sizing = [.width = laydoh->sizing_grow(0.0, 0.0), .height = laydoh->sizing_grow(0.0, 0.0)].(Clay_Sizing),
+            .sizing = [.width = laydoh->sizing_grow(0.0, 0.0), .height = laydoh->sizing_fit(0.0, 0.0)].(Clay_Sizing),
             .layoutDirection = 1,
             .padding = laydoh->padding_all(20),
         ].(Clay_LayoutConfig),
     ];
     laydoh->set_child_gap(root.layout@, 14);
-    laydoh->element_with_id:(#root_id, #root@, {
+    laydoh->element:(#root@, {
         Clay_ElementDeclaration hero = [
             .backgroundColor = laydoh->color(34.0, 43.0, 58.0, 255.0),
             .cornerRadius = laydoh->corner_radius_all(10.0),

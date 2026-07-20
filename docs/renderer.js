@@ -16,7 +16,8 @@ const DRAW_RECT = 1;
 const DRAW_TEXT = 2;
 const DRAW_COMMAND_SIZE = 36; // must match demo_wasm.yp's scratch-buffer layout
 
-const stage = document.getElementById("stage");
+const stage = document.getElementById("stage"); // real overflow-y: auto viewport, native scroll
+const content = document.getElementById("content"); // sized to Clay's own content height every frame
 
 function cssColor(r, g, b, a) {
   return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})`;
@@ -51,9 +52,22 @@ function readCommands(ptr, count) {
 }
 
 function renderStage(commands) {
-  stage.textContent = "";
+  content.textContent = "";
   const rects = commands.filter((c) => c.type === DRAW_RECT);
   const texts = commands.filter((c) => c.type === DRAW_TEXT);
+
+  // Clay's root element is FIT-sized to its true content height now (see
+  // demo_wasm.yp header comment) instead of being clamped to the viewport,
+  // so its own bounding box already tells us exactly how tall #content needs
+  // to be for #stage's native overflow-y: auto to have something real to
+  // scroll -- no separate "measure the content" step needed, just track the
+  // furthest bottom edge across every command actually emitted (culling is
+  // disabled wasm-side, so nothing below the fold is silently missing here).
+  let maxBottom = 0;
+  for (const c of commands) {
+    maxBottom = Math.max(maxBottom, c.y + c.h);
+  }
+  content.style.height = `${maxBottom}px`;
 
   // Paint order: all rectangles first, then all text on top, so text never
   // ends up underneath a later sibling's box.
@@ -66,7 +80,7 @@ function renderStage(commands) {
     el.style.height = `${c.h}px`;
     el.style.background = cssColor(c.r, c.g, c.b, c.a);
     el.style.borderRadius = `${c.cornerRadius}px`;
-    stage.appendChild(el);
+    content.appendChild(el);
   }
   for (const c of texts) {
     const bytes = window.HEAPU8.subarray(c.textPtr, c.textPtr + c.textLength);
@@ -79,7 +93,7 @@ function renderStage(commands) {
     el.style.height = `${c.h}px`;
     el.style.color = cssColor(c.r, c.g, c.b, c.a);
     el.style.fontSize = `${c.fontSize}px`;
-    stage.appendChild(el);
+    content.appendChild(el);
   }
 }
 
@@ -87,71 +101,14 @@ function currentSize() {
   return [window.innerWidth, window.innerHeight];
 }
 
-// Scroll input: feeds Clay's OWN pointer/scroll-container machinery
-// (Clay_SetPointerState + Clay_UpdateScrollContainers, called every frame
-// from app_update) instead of computing a scroll delta by hand here -- this
-// mirrors third_party/clay/examples/clay-official-website/main.c's
-// UpdateDrawFrame and clay-html-renderer.html exactly (see demo_wasm.yp's
-// header comment for why). Wheel deltas are accumulated since the last
-// rendered frame and reset after being sent, same "since last frame"
-// semantics as dt; pointer position/down-state are just tracked live and
-// re-sent every frame (Clay wants a fresh position each frame regardless of
-// whether it moved, both for its own hit-testing and to compute touch-drag
-// deltas internally frame-to-frame).
-let pointerX = 0;
-let pointerY = 0;
-let mouseDown = false;
-let touchDown = false;
-let wheelDX = 0;
-let wheelDY = 0;
-
-window.addEventListener("wheel", (e) => {
-  // DOM_DELTA_LINE / DOM_DELTA_PAGE (deltaMode 1 / 2) report in lines/pages
-  // rather than pixels on some browsers/devices; approximate both back to
-  // pixels.
-  let dx = e.deltaX;
-  let dy = e.deltaY;
-  if (e.deltaMode === 1) {
-    dx *= 16;
-    dy *= 16;
-  } else if (e.deltaMode === 2) {
-    dx *= window.innerWidth;
-    dy *= window.innerHeight;
-  }
-  // Negated: DOM wheel deltaY is positive when the user scrolls down, but
-  // Clay_UpdateScrollContainers treats a positive scrollDelta.y as "scroll
-  // toward the top" (clay.h: scrollPosition.y += scrollDelta.y * 10, and
-  // more positive/less negative scrollPosition.y means less-scrolled).
-  // Confirmed directly (scrolling "down" did nothing, scrolling "up" did the
-  // opposite of what it should) before adding this negation -- matches
-  // clay-official-website's own JS (`event.deltaY * -0.1`) exactly.
-  wheelDX -= dx;
-  wheelDY -= dy;
-});
-
-window.addEventListener("mousemove", (e) => {
-  pointerX = e.clientX;
-  pointerY = e.clientY;
-});
-window.addEventListener("mousedown", () => {
-  mouseDown = true;
-});
-window.addEventListener("mouseup", () => {
-  mouseDown = false;
-});
-
-window.addEventListener("touchstart", (e) => {
-  touchDown = true;
-  pointerX = e.touches[0].clientX;
-  pointerY = e.touches[0].clientY;
-});
-window.addEventListener("touchmove", (e) => {
-  pointerX = e.touches[0].clientX;
-  pointerY = e.touches[0].clientY;
-});
-window.addEventListener("touchend", () => {
-  touchDown = false;
-});
+// No scroll-input wiring at all -- scrolling is entirely native (#stage's
+// own overflow-y: auto + touch-action: pan-y, see index.html), same as how
+// third_party/clay/examples/clay-official-website's DOM/HTML-overlay
+// renderer mode does it. An earlier version of this file fed
+// Clay_SetPointerState/Clay_UpdateScrollContainers by hand every frame
+// (modeled on that site's CANVAS renderer mode instead, the wrong
+// reference for a div-based renderer) and felt jagged on real mobile touch
+// scrolling; see demo_wasm.yp's header comment for the full story.
 
 let lastTime = performance.now();
 
@@ -160,9 +117,7 @@ function frame(now) {
   lastTime = now;
 
   const [w, h] = currentSize();
-  window._app_update(w, h, dt, pointerX, pointerY, mouseDown || touchDown ? 1 : 0, touchDown ? 1 : 0, wheelDX, wheelDY);
-  wheelDX = 0;
-  wheelDY = 0;
+  window._app_update(w, h, dt);
 
   const ptr = window._app_get_draw_commands();
   const count = window._app_get_draw_command_count();

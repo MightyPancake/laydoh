@@ -3,14 +3,18 @@
   browser via yap's -bcc=emcc backend. Card 0 (bottom-left) animates its own
   width every frame so its text visibly reflows/wraps live; the whole page
   also re-lays-out on window resize. Content taller than the viewport (e.g.
-  the stacked mobile layout below 600px) scrolls via wheel/touch-drag,
-  handled by Clay's own scroll-container machinery (Clay_SetPointerState +
-  Clay_UpdateScrollContainers, fed pointer/wheel state renderer.js tracks)
-  the same way third_party/clay/examples/clay-official-website does it --
-  the browser's own scrolling stays disabled on purpose (see overflow:
-  hidden / touch-action: none below) so the layout keeps behaving like a
-  fixed canvas and Clay's virtual scroll offset is the only thing moving
-  content around.
+  the stacked mobile layout below 600px) scrolls NATIVELY -- #stage is a real
+  overflow-y: auto viewport, #content inside it gets an explicit height
+  (renderer.js, set from Clay's own computed content height every frame) so
+  the browser always has something real to scroll. This matches how
+  third_party/clay/examples/clay-official-website's DOM/HTML-overlay renderer
+  mode does it (Clay_SetExternalScrollHandlingEnabled(true) +
+  Clay_SetCullingEnabled(false) on the wasm side, see demo_wasm.yp) -- NOT
+  its canvas renderer mode, which uses Clay's own virtual scroll instead and
+  was the wrong reference for a div-based renderer like this one (an earlier
+  version of this file copied that one, which felt jagged on real mobile
+  touch scrolling since it depends on keeping a full relayout + full DOM
+  rebuild in sync with 60fps+ touch input on the main thread).
 
   Usage:
     1. Build libclay_wasm.a (once, or after changing wrapper.c): same recipe
@@ -42,15 +46,14 @@
     margin: 0;
     width: 100%;
     height: 100%;
+    /* html/body themselves are never the scrolling element (that's #stage
+       below) -- overflow: hidden here just prevents a redundant/competing
+       outer scrollbar or bounce region from also existing. Deliberately NOT
+       touch-action: none: that would disable panning for #stage's own
+       touch-action: pan-y too (a "none" on any ancestor wins over a
+       descendant's own value), which would break native touch scroll
+       entirely. */
     overflow: hidden;
-    /* Scrolling is implemented by Clay (see renderer.js/demo_wasm.yp), not
-       the browser -- touch-action: none here (matching where
-       third_party/clay/examples/clay-official-website/index.html puts it,
-       on its own top-level input surface) stops mobile browsers from also
-       trying to pan/bounce/navigate on their own in response to the same
-       touch input, at the broadest level rather than relying on it
-       propagating down from a single inner element. */
-    touch-action: none;
     background: #13181f;
     font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   }
@@ -58,7 +61,22 @@
     position: relative;
     width: 100%;
     height: 100%;
-    touch-action: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* pan-y (not none): allows native vertical touch-scroll, but still lets
+       the browser treat horizontal drags as "not a scroll gesture" here
+       (matching the layout itself, which is always exactly viewport-width by
+       construction, so horizontal scroll should never be reachable). */
+    touch-action: pan-y;
+  }
+  /* The actual scrollable content -- height is set from JS every frame to
+     Clay's own computed content height (see renderer.js), since #stage's
+     absolutely-positioned children don't otherwise contribute to any
+     element's auto height for the browser to know how far it can scroll. */
+  #content {
+    position: relative;
+    width: 100%;
   }
   .cmd-rect { position: absolute; }
   .cmd-text {
@@ -70,7 +88,7 @@
 </style>
 </head>
 <body>
-  <div id="stage"></div>
+  <div id="stage"><div id="content"></div></div>
   <script src="renderer.js"></script>
   <script src="laydoh_demo.js"></script>
 </body>
