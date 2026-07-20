@@ -87,66 +87,71 @@ function currentSize() {
   return [window.innerWidth, window.innerHeight];
 }
 
-// Virtual scroll: the page itself never scrolls (html/body keep
-// overflow:hidden) -- instead wheel/touch-drag input accumulates into a
-// pixel delta that app_update() feeds straight to Clay as a childOffset on
-// the root clip container, which is what actually repositions content.
-// Accumulated since the last rendered frame, then reset to zero once sent,
-// matching dt's own "since last frame" semantics.
-let pendingScrollDeltaY = 0;
+// Scroll input: feeds Clay's OWN pointer/scroll-container machinery
+// (Clay_SetPointerState + Clay_UpdateScrollContainers, called every frame
+// from app_update) instead of computing a scroll delta by hand here -- this
+// mirrors third_party/clay/examples/clay-official-website/main.c's
+// UpdateDrawFrame and clay-html-renderer.html exactly (see demo_wasm.yp's
+// header comment for why). Wheel deltas are accumulated since the last
+// rendered frame and reset after being sent, same "since last frame"
+// semantics as dt; pointer position/down-state are just tracked live and
+// re-sent every frame (Clay wants a fresh position each frame regardless of
+// whether it moved, both for its own hit-testing and to compute touch-drag
+// deltas internally frame-to-frame).
+let pointerX = 0;
+let pointerY = 0;
+let mouseDown = false;
+let touchDown = false;
+let wheelDX = 0;
+let wheelDY = 0;
 
-window.addEventListener(
-  "wheel",
-  (e) => {
-    // DOM_DELTA_LINE / DOM_DELTA_PAGE (deltaMode 1 / 2) report in lines/pages
-    // rather than pixels on some browsers/devices; approximate both back to
-    // pixels so the accumulated delta stays in the same units app_update
-    // already treats boundingBox coordinates in.
-    let dy = e.deltaY;
-    if (e.deltaMode === 1) {
-      dy *= 16;
-    } else if (e.deltaMode === 2) {
-      dy *= window.innerHeight;
-    }
-    pendingScrollDeltaY += dy;
-    e.preventDefault();
-  },
-  { passive: false }
-);
+window.addEventListener("wheel", (e) => {
+  // DOM_DELTA_LINE / DOM_DELTA_PAGE (deltaMode 1 / 2) report in lines/pages
+  // rather than pixels on some browsers/devices; approximate both back to
+  // pixels.
+  let dx = e.deltaX;
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) {
+    dx *= 16;
+    dy *= 16;
+  } else if (e.deltaMode === 2) {
+    dx *= window.innerWidth;
+    dy *= window.innerHeight;
+  }
+  // Negated: DOM wheel deltaY is positive when the user scrolls down, but
+  // Clay_UpdateScrollContainers treats a positive scrollDelta.y as "scroll
+  // toward the top" (clay.h: scrollPosition.y += scrollDelta.y * 10, and
+  // more positive/less negative scrollPosition.y means less-scrolled).
+  // Confirmed directly (scrolling "down" did nothing, scrolling "up" did the
+  // opposite of what it should) before adding this negation -- matches
+  // clay-official-website's own JS (`event.deltaY * -0.1`) exactly.
+  wheelDX -= dx;
+  wheelDY -= dy;
+});
 
-let touchLastY = null;
+window.addEventListener("mousemove", (e) => {
+  pointerX = e.clientX;
+  pointerY = e.clientY;
+});
+window.addEventListener("mousedown", () => {
+  mouseDown = true;
+});
+window.addEventListener("mouseup", () => {
+  mouseDown = false;
+});
 
-window.addEventListener(
-  "touchstart",
-  (e) => {
-    touchLastY = e.touches[0].clientY;
-  },
-  { passive: true }
-);
-
-window.addEventListener(
-  "touchmove",
-  (e) => {
-    if (touchLastY !== null) {
-      const y = e.touches[0].clientY;
-      // Dragging a finger up should reveal content further down the page --
-      // the same sign convention wheel's deltaY already uses (positive =
-      // scroll down), so this is the negated finger movement.
-      pendingScrollDeltaY += touchLastY - y;
-      touchLastY = y;
-    }
-    e.preventDefault();
-  },
-  { passive: false }
-);
-
-window.addEventListener(
-  "touchend",
-  () => {
-    touchLastY = null;
-  },
-  { passive: true }
-);
+window.addEventListener("touchstart", (e) => {
+  touchDown = true;
+  pointerX = e.touches[0].clientX;
+  pointerY = e.touches[0].clientY;
+});
+window.addEventListener("touchmove", (e) => {
+  pointerX = e.touches[0].clientX;
+  pointerY = e.touches[0].clientY;
+});
+window.addEventListener("touchend", () => {
+  touchDown = false;
+});
 
 let lastTime = performance.now();
 
@@ -155,8 +160,9 @@ function frame(now) {
   lastTime = now;
 
   const [w, h] = currentSize();
-  window._app_update(w, h, dt, pendingScrollDeltaY);
-  pendingScrollDeltaY = 0;
+  window._app_update(w, h, dt, pointerX, pointerY, mouseDown || touchDown ? 1 : 0, touchDown ? 1 : 0, wheelDX, wheelDY);
+  wheelDX = 0;
+  wheelDY = 0;
 
   const ptr = window._app_get_draw_commands();
   const count = window._app_get_draw_command_count();

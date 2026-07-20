@@ -23,42 +23,28 @@
 // alignment slack Clay_Initialize applies to the raw pointer before placing
 // the context) + SCRATCH_SIZE (ours) so that region is always valid.
 //
+// Scrolling uses Clay's OWN scroll-container machinery (Clay_SetPointerState +
+// Clay_UpdateScrollContainers + Clay_GetScrollContainerData), matching exactly
+// how third_party/clay/examples/clay-official-website/main.c's UpdateDrawFrame
+// and third_party/clay/renderers/web/html/clay-html-renderer.html do it --
+// see those two files for the canonical reference this was checked against.
+// A first attempt hand-tracked scroll position/clamping itself instead (see
+// git history / project memory for that version); switched to Clay's own
+// APIs because (a) it's what the only two real, browser-tested Clay web
+// integrations available for comparison actually do, (b) it gets touch
+// momentum/deceleration for free, and (c) Clay_GetScrollContainerData(id)
+// (unlike Clay_GetScrollOffset(), which reads back data for "the currently
+// open element" and so needs to run between Clay__OpenElement() and its
+// config being built) can be called with an explicit id at ANY point in the
+// frame, including before root is even opened -- fitting this file's existing
+// pattern of building each Clay_ElementDeclaration as a plain local variable
+// first. Root is still opened via sugar.yp's element_with_id() (not plain
+// element()) so it carries a stable, explicit id for that lookup.
+//
 // Scratch layout (all offsets relative to scratch_base):
 //   +0  i32  draw command count
 //   +4  f32  accumulated elapsed seconds (drives the card-0 width animation)
-//   +8  f32  scroll_y -- persisted virtual scroll offset (<= 0), fed straight
-//       into root's Clay_ClipElementConfig.childOffset.y every frame. Clamped
-//       each frame against +12 below so it can never scroll past the real
-//       content extent.
-//   +12 f32  last_content_bottom -- root's total content height as Clay itself
-//       computed it last frame (Clay_GetScrollContainerData(root_id).contentDimensions.height,
-//       queried right after end_layout()), i.e. this frame's clamp bound.
-//       One-frame-lagged by construction (this frame's clamp needs a number
-//       before this frame's own layout has even run) -- same lag Clay's own
-//       Clay_UpdateScrollContainers/Clay_GetScrollOffset pair has internally,
-//       just tracked by hand instead of through Clay's scroll-container APIs.
-//       Deliberately NOT measured by scanning draw commands for max(y+height):
-//       tried that first, and it undercounts whenever part of the content is
-//       offscreen, because Clay culls render commands for offscreen elements
-//       (Clay__ElementIsOffscreen) before they ever reach the array -- confirmed
-//       directly (the 3rd stacked card at 390x664 never showed up in the
-//       command dump even after a large scroll-down delta, because the very
-//       FIRST frame's clamp was computed from a content height that excluded
-//       it). Clay_GetScrollContainerData's contentDimensions comes from
-//       Clay__CalculateFinalLayout summing each child's *dimensions* directly
-//       (clay.h ~3098-3134), never filtered by culling, so it's immune to
-//       this. Also can't use root's own get_scroll_offset() for the scroll_y
-//       side of things: that reads back data for "the currently open
-//       element", which requires calling it AFTER Clay__OpenElement() has run
-//       for root but BEFORE its config is built -- incompatible with this
-//       file's existing pattern of building each Clay_ElementDeclaration as a
-//       plain local variable before ever opening the element. Root is opened
-//       below via sugar.yp's element_with_id() (not the plain element()
-//       macro) specifically so it can carry a stable, explicit id --
-//       Clay_GetScrollContainerData needs a known id to query, and plain
-//       element()'s Clay__OpenElement() always auto-generates one there'd be
-//       no way to predict.
-//   +16 draw commands, DRAW_COMMAND_SIZE bytes each, packed by hand since
+//   +8  draw commands, DRAW_COMMAND_SIZE bytes each, packed by hand since
 //       yap has no #pragma pack -- see write_rect_command/write_text_command.
 //       Field layout mirrors nullptr's own packed DrawCommand exactly, plus
 //       one extra trailing i32 corner-radius field:
@@ -190,11 +176,10 @@ i32 fn app_init(i32 width, i32 height) {
 
     i32 min_mem;
     min_mem = laydoh->min_memory_size();
-    // 64: Clay_Initialize's own cacheline alignment slack. 16: scratch header
-    // (count + elapsed + scroll_y + last_content_bottom). 64 * 36: room for
-    // up to 64 draw commands.
+    // 64: Clay_Initialize's own cacheline alignment slack. 8: scratch header
+    // (count + elapsed). 64 * 36: room for up to 64 draw commands.
     i32 total_size;
-    total_size = min_mem + 64 + 16 + (64 * 36);
+    total_size = min_mem + 64 + 8 + (64 * 36);
 
     none@ memory;
     memory = laydoh->malloc(total_size.(i64));
@@ -211,7 +196,7 @@ i32 fn app_init(i32 width, i32 height) {
     ret 0;
 }
 
-i32 fn app_update(i32 width, i32 height, f32 dt, f32 scroll_delta_y) {
+i32 fn app_update(i32 width, i32 height, f32 dt, f32 pointer_x, f32 pointer_y, i32 pointer_down, i32 touch_down, f32 wheel_dx, f32 wheel_dy) {
     app_init(width, height);
 
     Clay_Dimensions screen = [.width = width.(f32), .height = height.(f32)];
@@ -224,27 +209,17 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 scroll_delta_y) {
     elapsed = read_f32(base + 4) + dt;
     write_f32(base + 4, elapsed);
 
-    // Virtual vertical scroll: accumulate this frame's wheel/touch-drag delta,
-    // then clamp against LAST frame's measured content height (see header
-    // comment for why it's one-frame-lagged instead of using Clay's own
-    // scroll-container bookkeeping). scroll_y is always <= 0; more negative
-    // means scrolled further down.
-    f32 last_content_bottom;
-    last_content_bottom = read_f32(base + 12);
-    f32 scroll_y;
-    scroll_y = read_f32(base + 8) - scroll_delta_y;
-    f32 max_scroll;
-    max_scroll = last_content_bottom - height.(f32);
-    if (max_scroll < 0.0) {
-        max_scroll = 0.0;
-    }
-    if (scroll_y < 0.0 - max_scroll) {
-        scroll_y = 0.0 - max_scroll;
-    }
-    if (scroll_y > 0.0) {
-        scroll_y = 0.0;
-    }
-    write_f32(base + 8, scroll_y);
+    // Feed Clay's own pointer/scroll-container bookkeeping, in the same
+    // order and with the same meaning as the official examples (see header
+    // comment): pointer_down is mouse-or-touch (Clay_SetPointerState just
+    // needs "is anything pressed", used for hover/click/drag-scroll hit
+    // testing), touch_down specifically gates drag-to-scroll (mouse wheel
+    // shouldn't also enable click-drag scrolling on desktop).
+    Clay_Vector2 pointer_pos = [.x = pointer_x, .y = pointer_y];
+    laydoh->set_pointer_state(pointer_pos, pointer_down != 0);
+
+    Clay_Vector2 wheel_delta = [.x = wheel_dx, .y = wheel_dy];
+    laydoh->update_scroll_containers(touch_down != 0, wheel_delta, dt);
 
     // Triangle wave in [0, 1] over a 4s period, driving card 0's fixed
     // width between 160 and 360 so its text visibly reflows/wraps live.
@@ -309,6 +284,24 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 scroll_delta_y) {
     Clay_ElementId root_id;
     root_id = root_id_str:element_id();
 
+    // Clay_GetScrollContainerData(id) works with an explicit id at any point
+    // in the frame (unlike Clay_GetScrollOffset(), see header comment), so
+    // this can run here, before root is even opened, fitting the pattern of
+    // building the whole Clay_ElementDeclaration as a local variable first.
+    // scrollPosition is a pointer into Clay's own internal, already-updated-
+    // this-frame (by update_scroll_containers above) scroll state; "found"
+    // is false only on the very first frame, before root has been declared
+    // even once, so nothing has been registered into Clay's scroll-container
+    // table yet.
+    Clay_ScrollContainerData root_scroll;
+    root_scroll = root_id:scroll_container_data();
+    Clay_Vector2 root_scroll_offset;
+    if (root_scroll.found) {
+        root_scroll_offset = root_scroll.scrollPosition.;
+    } else {
+        root_scroll_offset = [.x = 0.0, .y = 0.0].(Clay_Vector2);
+    }
+
     laydoh->begin_layout();
 
     // .clip.vertical = true does double duty here: it lets Clay__SizeContainersAlongAxis's
@@ -320,12 +313,12 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 scroll_delta_y) {
     // cards reported the same height regardless of their own text (confirmed by
     // re-reading Clay's own compression algorithm, not by re-running the two disproven
     // experiments from the prior session). It also makes Clay apply .childOffset to
-    // every descendant's position, which is what actually implements scrolling: our own
-    // scroll_y (see header comment) shifts content up without moving root's own
-    // background rect.
+    // every descendant's position, which is what actually implements scrolling:
+    // root_scroll_offset (Clay's own tracked position, see above) shifts content up
+    // without moving root's own background rect.
     Clay_ElementDeclaration root = [
         .backgroundColor = laydoh->color(19.0, 24.0, 33.0, 255.0),
-        .clip = [.horizontal = false, .vertical = true, .childOffset = [.x = 0.0, .y = scroll_y].(Clay_Vector2)].(Clay_ClipElementConfig),
+        .clip = [.horizontal = false, .vertical = true, .childOffset = root_scroll_offset].(Clay_ClipElementConfig),
         .layout = [
             .sizing = [.width = laydoh->sizing_grow(0.0, 0.0), .height = laydoh->sizing_grow(0.0, 0.0)].(Clay_Sizing),
             .layoutDirection = 1,
@@ -415,14 +408,7 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 scroll_delta_y) {
     commands = laydoh->end_layout(dt);
 
     i32 commands_base;
-    commands_base = base + 16;
-
-    // See header comment for why this is Clay_GetScrollContainerData's
-    // contentDimensions rather than a max(y+height) scan over this frame's
-    // render commands (culling makes that undercount offscreen content).
-    Clay_ScrollContainerData scroll_data;
-    scroll_data = root_id:scroll_container_data();
-    write_f32(base + 12, scroll_data.contentDimensions.height);
+    commands_base = base + 8;
 
     i32 count = 0;
     i32 ci = 0;
@@ -485,7 +471,7 @@ i32 fn app_update(i32 width, i32 height, f32 dt, f32 scroll_delta_y) {
 }
 
 i32 fn app_get_draw_commands() {
-    ret scratch_base_addr() + 16;
+    ret scratch_base_addr() + 8;
 }
 
 i32 fn app_get_draw_command_count() {
