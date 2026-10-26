@@ -9,12 +9,12 @@ import stdlib
 import io
 
 none fn on_error(Clay_ErrorData err) {
-    io->print:(c"clay error: %s\n", [err.errorText.chars]);
+    io->printf:(c"clay error: %s\n", {err.errorText.chars});
 }
 
 Clay_Dimensions fn measure_text(Clay_StringSlice text, Clay_TextElementConfig@ config, none@ user_data) {
     i32 font_size;
-    font_size = config:[0].fontSize_lo.(i32) + (config:[0].fontSize_hi.(i32) * 256);
+    font_size = config[0].fontSize_lo.(i32) + (config[0].fontSize_hi.(i32) * 256);
 
     Clay_Dimensions dims;
     dims.width = text.length.(f32) * (font_size.(f32) * 0.56);
@@ -111,33 +111,33 @@ i32 fn main() {
         cmd = commands:get(ci);
 
         i32 x; i32 y; i32 w; i32 h;
-        x = cmd:[0].boundingBox.x.(i32);
-        y = cmd:[0].boundingBox.y.(i32);
-        w = cmd:[0].boundingBox.width.(i32);
-        h = cmd:[0].boundingBox.height.(i32);
+        x = cmd[0].boundingBox.x.(i32);
+        y = cmd[0].boundingBox.y.(i32);
+        w = cmd[0].boundingBox.width.(i32);
+        h = cmd[0].boundingBox.height.(i32);
 
-        if (cmd:[0].commandType == 1) {
+        if (cmd[0].commandType == 1) {
             i32 r; i32 g; i32 b; i32 a; i32 cr;
-            r = cmd:[0].renderData.rectangle.backgroundColor.r.(i32);
-            g = cmd:[0].renderData.rectangle.backgroundColor.g.(i32);
-            b = cmd:[0].renderData.rectangle.backgroundColor.b.(i32);
-            a = cmd:[0].renderData.rectangle.backgroundColor.a.(i32);
-            cr = cmd:[0].renderData.rectangle.cornerRadius.topLeft.(i32);
-            io->print:(c"R %d %d %d %d %d %d %d %d %d\n", [x, y, w, h, r, g, b, a, cr]);
-        } else if (cmd:[0].commandType == 3) {
+            r = cmd[0].renderData.rectangle.backgroundColor.r.(i32);
+            g = cmd[0].renderData.rectangle.backgroundColor.g.(i32);
+            b = cmd[0].renderData.rectangle.backgroundColor.b.(i32);
+            a = cmd[0].renderData.rectangle.backgroundColor.a.(i32);
+            cr = cmd[0].renderData.rectangle.cornerRadius.topLeft.(i32);
+            io->printf:(c"R %d %d %d %d %d %d %d %d %d\n", {x, y, w, h, r, g, b, a, cr});
+        } else if (cmd[0].commandType == 3) {
             i32 r; i32 g; i32 b; i32 a; i32 fs; i32 tlen;
-            r = cmd:[0].renderData.text.textColor.r.(i32);
-            g = cmd:[0].renderData.text.textColor.g.(i32);
-            b = cmd:[0].renderData.text.textColor.b.(i32);
-            a = cmd:[0].renderData.text.textColor.a.(i32);
-            fs = cmd:[0].renderData.text.fontSize_lo.(i32) + (cmd:[0].renderData.text.fontSize_hi.(i32) * 256);
-            tlen = cmd:[0].renderData.text.stringContents.length;
-            io->print:(c"T %d %d %d %d %d %d %d %d %d %d ", [x, y, w, h, r, g, b, a, fs, tlen]);
+            r = cmd[0].renderData.text.textColor.r.(i32);
+            g = cmd[0].renderData.text.textColor.g.(i32);
+            b = cmd[0].renderData.text.textColor.b.(i32);
+            a = cmd[0].renderData.text.textColor.a.(i32);
+            fs = cmd[0].renderData.text.fontSize_lo.(i32) + (cmd[0].renderData.text.fontSize_hi.(i32) * 256);
+            tlen = cmd[0].renderData.text.stringContents.length;
+            io->printf:(c"T %d %d %d %d %d %d %d %d %d %d ", {x, y, w, h, r, g, b, a, fs, tlen});
             byte@ chars;
-            chars = cmd:[0].renderData.text.stringContents.chars;
+            chars = cmd[0].renderData.text.stringContents.chars;
             i32 j = 0;
             while (j < tlen) {
-                io->putchar(chars:[j].(i32));
+                io->putchar(chars[j].(i32));
                 j = j + 1;
             }
             io->putchar(10);

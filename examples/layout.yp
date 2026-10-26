@@ -3,7 +3,7 @@ import stdlib
 import io
 
 none fn on_error(Clay_ErrorData err) {
-    io->print:(c"clay error: %s\n", [err.errorText.chars]);
+    io->printf:(c"clay error: %s\n", {err.errorText.chars});
 }
 
 Clay_Dimensions fn measure_text(Clay_StringSlice text, Clay_TextElementConfig@ config, none@ user_data) {
@@ -50,14 +50,14 @@ i32 fn main() {
     Clay_RenderCommandArray commands;
     commands = laydoh->Clay_EndLayout(0.016);
 
-    io->print:(c"render command count: %d\n", [commands.length]);
+    io->printf:(c"render command count: %d\n", {commands.length});
 
     Clay_RenderCommand@ cmd;
     cmd = laydoh->Clay_RenderCommandArray_Get(commands@, 0);
     if (cmd.(i64) != 0) {
         i32 r;
-        r = cmd:[0].renderData.rectangle.backgroundColor.r.(i32);
-        io->print:(c"first command bg.r = %d\n", [r]);
+        r = cmd[0].renderData.rectangle.backgroundColor.r.(i32);
+        io->printf:(c"first command bg.r = %d\n", {r});
     }
 
     ret 0;
