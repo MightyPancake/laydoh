@@ -31,105 +31,105 @@
 // "4 uint16_t" and "8 byte" fields both fall in the same one-eightbyte
 // INTEGER class and are passed/returned identically.
 
-type Clay_Context
+bind type Clay_Context
 
-struct Clay_String {
+bind struct Clay_String {
     bool isStaticallyAllocated,
     i32 length,
     byte@ chars,
 }
 
-struct Clay_StringSlice {
+bind struct Clay_StringSlice {
     i32 length,
     byte@ chars,
     byte@ baseChars,
 }
 
-struct Clay_Arena {
+bind struct Clay_Arena {
     i64 nextAllocation,
     i64 capacity,
     byte@ memory,
 }
 
-struct Clay_Dimensions {
+bind struct Clay_Dimensions {
     f32 width,
     f32 height,
 }
 
-struct Clay_Vector2 {
+bind struct Clay_Vector2 {
     f32 x,
     f32 y,
 }
 
-struct Clay_Color {
+bind struct Clay_Color {
     f32 r,
     f32 g,
     f32 b,
     f32 a,
 }
 
-struct Clay_BoundingBox {
+bind struct Clay_BoundingBox {
     f32 x,
     f32 y,
     f32 width,
     f32 height,
 }
 
-struct Clay_ElementId {
+bind struct Clay_ElementId {
     i32 id,
     i32 offset,
     i32 baseId,
     Clay_String stringId,
 }
 
-struct Clay_ElementIdArray {
+bind struct Clay_ElementIdArray {
     i32 capacity,
     i32 length,
     Clay_ElementId@ internalArray,
 }
 
-struct Clay_CornerRadius {
+bind struct Clay_CornerRadius {
     f32 topLeft,
     f32 topRight,
     f32 bottomLeft,
     f32 bottomRight,
 }
 
-enum Clay_LayoutDirection {
+bind enum Clay_LayoutDirection {
     CLAY_LEFT_TO_RIGHT,
     CLAY_TOP_TO_BOTTOM,
 }
 
-enum Clay_LayoutAlignmentX {
+bind enum Clay_LayoutAlignmentX {
     CLAY_ALIGN_X_LEFT,
     CLAY_ALIGN_X_RIGHT,
     CLAY_ALIGN_X_CENTER,
 }
 
-enum Clay_LayoutAlignmentY {
+bind enum Clay_LayoutAlignmentY {
     CLAY_ALIGN_Y_TOP,
     CLAY_ALIGN_Y_BOTTOM,
     CLAY_ALIGN_Y_CENTER,
 }
 
-enum Clay__SizingType {
+bind enum Clay__SizingType {
     CLAY__SIZING_TYPE_FIT,
     CLAY__SIZING_TYPE_GROW,
     CLAY__SIZING_TYPE_PERCENT,
     CLAY__SIZING_TYPE_FIXED,
 }
 
-struct Clay_ChildAlignment {
+bind struct Clay_ChildAlignment {
     byte x,
     byte y,
 }
 
-struct Clay_SizingMinMax {
+bind struct Clay_SizingMinMax {
     f32 min,
     f32 max,
 }
 
-struct Clay_SizingAxis {
+bind struct Clay_SizingAxis {
     union {
         Clay_SizingMinMax minMax,
         f32 percent,
@@ -137,12 +137,12 @@ struct Clay_SizingAxis {
     byte type,
 }
 
-struct Clay_Sizing {
+bind struct Clay_Sizing {
     Clay_SizingAxis width,
     Clay_SizingAxis height,
 }
 
-struct Clay_Padding {
+bind struct Clay_Padding {
     byte left_lo, // uint16_t left, low byte (little-endian)
     byte left_hi, // uint16_t left, high byte
     byte right_lo, // uint16_t right, low byte (little-endian)
@@ -153,7 +153,7 @@ struct Clay_Padding {
     byte bottom_hi, // uint16_t bottom, high byte
 }
 
-struct Clay_LayoutConfig {
+bind struct Clay_LayoutConfig {
     Clay_Sizing sizing,
     Clay_Padding padding,
     byte childGap_lo, // uint16_t childGap, low byte (little-endian)
@@ -162,19 +162,19 @@ struct Clay_LayoutConfig {
     byte layoutDirection,
 }
 
-enum Clay_TextElementConfigWrapMode {
+bind enum Clay_TextElementConfigWrapMode {
     CLAY_TEXT_WRAP_WORDS,
     CLAY_TEXT_WRAP_NEWLINES,
     CLAY_TEXT_WRAP_NONE,
 }
 
-enum Clay_TextAlignment {
+bind enum Clay_TextAlignment {
     CLAY_TEXT_ALIGN_LEFT,
     CLAY_TEXT_ALIGN_CENTER,
     CLAY_TEXT_ALIGN_RIGHT,
 }
 
-struct Clay_TextElementConfig {
+bind struct Clay_TextElementConfig {
     none@ userData,
     Clay_Color textColor,
     byte fontId_lo, // uint16_t fontId, low byte (little-endian)
@@ -189,15 +189,15 @@ struct Clay_TextElementConfig {
     byte textAlignment,
 }
 
-struct Clay_AspectRatioElementConfig {
+bind struct Clay_AspectRatioElementConfig {
     f32 aspectRatio,
 }
 
-struct Clay_ImageElementConfig {
+bind struct Clay_ImageElementConfig {
     none@ imageData,
 }
 
-enum Clay_FloatingAttachPointType {
+bind enum Clay_FloatingAttachPointType {
     CLAY_ATTACH_POINT_LEFT_TOP,
     CLAY_ATTACH_POINT_LEFT_CENTER,
     CLAY_ATTACH_POINT_LEFT_BOTTOM,
@@ -209,29 +209,29 @@ enum Clay_FloatingAttachPointType {
     CLAY_ATTACH_POINT_RIGHT_BOTTOM,
 }
 
-struct Clay_FloatingAttachPoints {
+bind struct Clay_FloatingAttachPoints {
     byte element,
     byte parent,
 }
 
-enum Clay_PointerCaptureMode {
+bind enum Clay_PointerCaptureMode {
     CLAY_POINTER_CAPTURE_MODE_CAPTURE,
     CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH,
 }
 
-enum Clay_FloatingAttachToElement {
+bind enum Clay_FloatingAttachToElement {
     CLAY_ATTACH_TO_NONE,
     CLAY_ATTACH_TO_PARENT,
     CLAY_ATTACH_TO_ELEMENT_WITH_ID,
     CLAY_ATTACH_TO_ROOT,
 }
 
-enum Clay_FloatingClipToElement {
+bind enum Clay_FloatingClipToElement {
     CLAY_CLIP_TO_NONE,
     CLAY_CLIP_TO_ATTACHED_PARENT,
 }
 
-struct Clay_FloatingElementConfig {
+bind struct Clay_FloatingElementConfig {
     Clay_Vector2 offset,
     Clay_Dimensions expand,
     i32 parentId,
@@ -243,17 +243,17 @@ struct Clay_FloatingElementConfig {
     byte clipTo,
 }
 
-struct Clay_CustomElementConfig {
+bind struct Clay_CustomElementConfig {
     none@ customData,
 }
 
-struct Clay_ClipElementConfig {
+bind struct Clay_ClipElementConfig {
     bool horizontal,
     bool vertical,
     Clay_Vector2 childOffset,
 }
 
-struct Clay_BorderWidth {
+bind struct Clay_BorderWidth {
     byte left_lo, // uint16_t left, low byte (little-endian)
     byte left_hi, // uint16_t left, high byte
     byte right_lo, // uint16_t right, low byte (little-endian)
@@ -266,12 +266,12 @@ struct Clay_BorderWidth {
     byte betweenChildren_hi, // uint16_t betweenChildren, high byte
 }
 
-struct Clay_BorderElementConfig {
+bind struct Clay_BorderElementConfig {
     Clay_Color color,
     Clay_BorderWidth width,
 }
 
-struct Clay_TransitionData {
+bind struct Clay_TransitionData {
     Clay_BoundingBox boundingBox,
     Clay_Color backgroundColor,
     Clay_Color overlayColor,
@@ -279,14 +279,14 @@ struct Clay_TransitionData {
     Clay_BorderWidth borderWidth,
 }
 
-enum Clay_TransitionState {
+bind enum Clay_TransitionState {
     CLAY_TRANSITION_STATE_IDLE,
     CLAY_TRANSITION_STATE_ENTERING,
     CLAY_TRANSITION_STATE_TRANSITIONING,
     CLAY_TRANSITION_STATE_EXITING,
 }
 
-enum Clay_TransitionProperty {
+bind enum Clay_TransitionProperty {
     CLAY_TRANSITION_PROPERTY_NONE,
     CLAY_TRANSITION_PROPERTY_X,
     CLAY_TRANSITION_PROPERTY_Y,
@@ -303,7 +303,7 @@ enum Clay_TransitionProperty {
     CLAY_TRANSITION_PROPERTY_BORDER,
 }
 
-struct Clay_TransitionCallbackArguments {
+bind struct Clay_TransitionCallbackArguments {
     Clay_TransitionState transitionState,
     Clay_TransitionData initial,
     Clay_TransitionData@ current,
@@ -313,28 +313,28 @@ struct Clay_TransitionCallbackArguments {
     Clay_TransitionProperty properties,
 }
 
-enum Clay_TransitionEnterTriggerType {
+bind enum Clay_TransitionEnterTriggerType {
     CLAY_TRANSITION_ENTER_SKIP_ON_FIRST_PARENT_FRAME,
     CLAY_TRANSITION_ENTER_TRIGGER_ON_FIRST_PARENT_FRAME,
 }
 
-enum Clay_TransitionExitTriggerType {
+bind enum Clay_TransitionExitTriggerType {
     CLAY_TRANSITION_EXIT_SKIP_WHEN_PARENT_EXITS,
     CLAY_TRANSITION_EXIT_TRIGGER_WHEN_PARENT_EXITS,
 }
 
-enum Clay_TransitionInteractionHandlingType {
+bind enum Clay_TransitionInteractionHandlingType {
     CLAY_TRANSITION_DISABLE_INTERACTIONS_WHILE_TRANSITIONING_POSITION,
     CLAY_TRANSITION_ALLOW_INTERACTIONS_WHILE_TRANSITIONING_POSITION,
 }
 
-enum Clay_ExitTransitionSiblingOrdering {
+bind enum Clay_ExitTransitionSiblingOrdering {
     CLAY_EXIT_TRANSITION_ORDERING_UNDERNEATH_SIBLINGS,
     CLAY_EXIT_TRANSITION_ORDERING_NATURAL_ORDER,
     CLAY_EXIT_TRANSITION_ORDERING_ABOVE_SIBLINGS,
 }
 
-struct Clay_TransitionElementConfig {
+bind struct Clay_TransitionElementConfig {
     (bool fn Clay_TransitionCallbackArguments) handler,
     f32 duration,
     Clay_TransitionProperty properties,
@@ -350,7 +350,7 @@ struct Clay_TransitionElementConfig {
     } exit,
 }
 
-struct Clay_TextRenderData {
+bind struct Clay_TextRenderData {
     Clay_StringSlice stringContents,
     Clay_Color textColor,
     byte fontId_lo, // uint16_t fontId, low byte (little-endian)
@@ -363,39 +363,39 @@ struct Clay_TextRenderData {
     byte lineHeight_hi, // uint16_t lineHeight, high byte
 }
 
-struct Clay_RectangleRenderData {
+bind struct Clay_RectangleRenderData {
     Clay_Color backgroundColor,
     Clay_CornerRadius cornerRadius,
 }
 
-struct Clay_ImageRenderData {
+bind struct Clay_ImageRenderData {
     Clay_Color backgroundColor,
     Clay_CornerRadius cornerRadius,
     none@ imageData,
 }
 
-struct Clay_CustomRenderData {
+bind struct Clay_CustomRenderData {
     Clay_Color backgroundColor,
     Clay_CornerRadius cornerRadius,
     none@ customData,
 }
 
-struct Clay_ClipRenderData {
+bind struct Clay_ClipRenderData {
     bool horizontal,
     bool vertical,
 }
 
-struct Clay_OverlayColorRenderData {
+bind struct Clay_OverlayColorRenderData {
     Clay_Color color,
 }
 
-struct Clay_BorderRenderData {
+bind struct Clay_BorderRenderData {
     Clay_Color color,
     Clay_CornerRadius cornerRadius,
     Clay_BorderWidth width,
 }
 
-union Clay_RenderData {
+bind union Clay_RenderData {
     Clay_RectangleRenderData rectangle,
     Clay_TextRenderData text,
     Clay_ImageRenderData image,
@@ -405,7 +405,7 @@ union Clay_RenderData {
     Clay_OverlayColorRenderData overlayColor,
 }
 
-struct Clay_ScrollContainerData {
+bind struct Clay_ScrollContainerData {
     Clay_Vector2@ scrollPosition,
     Clay_Dimensions scrollContainerDimensions,
     Clay_Dimensions contentDimensions,
@@ -413,12 +413,12 @@ struct Clay_ScrollContainerData {
     bool found,
 }
 
-struct Clay_ElementData {
+bind struct Clay_ElementData {
     Clay_BoundingBox boundingBox,
     bool found,
 }
 
-enum Clay_RenderCommandType {
+bind enum Clay_RenderCommandType {
     CLAY_RENDER_COMMAND_TYPE_NONE,
     CLAY_RENDER_COMMAND_TYPE_RECTANGLE,
     CLAY_RENDER_COMMAND_TYPE_BORDER,
@@ -431,7 +431,7 @@ enum Clay_RenderCommandType {
     CLAY_RENDER_COMMAND_TYPE_CUSTOM,
 }
 
-struct Clay_RenderCommand {
+bind struct Clay_RenderCommand {
     Clay_BoundingBox boundingBox,
     Clay_RenderData renderData,
     none@ userData,
@@ -441,25 +441,25 @@ struct Clay_RenderCommand {
     byte commandType,
 }
 
-struct Clay_RenderCommandArray {
+bind struct Clay_RenderCommandArray {
     i32 capacity,
     i32 length,
     Clay_RenderCommand@ internalArray,
 }
 
-enum Clay_PointerDataInteractionState {
+bind enum Clay_PointerDataInteractionState {
     CLAY_POINTER_DATA_PRESSED_THIS_FRAME,
     CLAY_POINTER_DATA_PRESSED,
     CLAY_POINTER_DATA_RELEASED_THIS_FRAME,
     CLAY_POINTER_DATA_RELEASED,
 }
 
-struct Clay_PointerData {
+bind struct Clay_PointerData {
     Clay_Vector2 position,
     byte state,
 }
 
-struct Clay_ElementDeclaration {
+bind struct Clay_ElementDeclaration {
     Clay_LayoutConfig layout,
     Clay_Color backgroundColor,
     Clay_Color overlayColor,
@@ -474,7 +474,7 @@ struct Clay_ElementDeclaration {
     none@ userData,
 }
 
-enum Clay_ErrorType {
+bind enum Clay_ErrorType {
     CLAY_ERROR_TYPE_TEXT_MEASUREMENT_FUNCTION_NOT_PROVIDED,
     CLAY_ERROR_TYPE_ARENA_CAPACITY_EXCEEDED,
     CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED,
@@ -487,13 +487,13 @@ enum Clay_ErrorType {
     CLAY_ERROR_TYPE_HASH_MAP_CAPACITY_EXCEEDED,
 }
 
-struct Clay_ErrorData {
+bind struct Clay_ErrorData {
     byte errorType,
     Clay_String errorText,
     none@ userData,
 }
 
-struct Clay_ErrorHandler {
+bind struct Clay_ErrorHandler {
     (none fn Clay_ErrorData) errorHandlerFunction,
     none@ userData,
 }
