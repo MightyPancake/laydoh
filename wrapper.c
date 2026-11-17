@@ -322,46 +322,14 @@ Clay_Color clay_color(float r, float g, float b, float a) {
     return c;
 }
 
-/* Setters for the handful of real uint16_t/int16_t fields (see binds.yp's
- * header comment) -- these hide the _lo/_hi byte-pair split entirely so
- * ordinary layout code never has to touch it. */
-
-__attribute__((visibility("default")))
-void clay_set_child_gap(Clay_LayoutConfig *layout, int32_t gap) {
-    layout->childGap = (uint16_t)gap;
-}
-
-__attribute__((visibility("default")))
-void clay_set_font_size(Clay_TextElementConfig *cfg, int32_t font_size) {
-    cfg->fontSize = (uint16_t)font_size;
-}
-
-__attribute__((visibility("default")))
-void clay_set_border_widths(Clay_BorderWidth *w, int32_t left, int32_t right, int32_t top, int32_t bottom, int32_t between_children) {
-    w->left = (uint16_t)left;
-    w->right = (uint16_t)right;
-    w->top = (uint16_t)top;
-    w->bottom = (uint16_t)bottom;
-    w->betweenChildren = (uint16_t)between_children;
-}
-
-__attribute__((visibility("default")))
-void clay_set_floating_z_index(Clay_FloatingElementConfig *f, int32_t z) {
-    f->zIndex = (int16_t)z;
-}
-
 /* Thin malloc passthrough so callers only need `import laydoh` for arena
  * setup -- yap's own stdlib module wraps all of <stdlib.h> including glibc-
  * only extensions (rand48 family, etc.) that don't exist under emscripten's
  * musl sysroot, so libstdlib_wasm.a doesn't build. This one function is all
  * a Clay arena setup ever needs. */
-// long long, not size_t: size_t is 4 bytes under wasm32 but yap's i64 always
-// compiles to an 8-byte long long on every target, native or wasm -- using
-// size_t here would silently mismatch the wasm function signature yap calls
-// against (a param-width mismatch that gets linked as a trap stub, not a
-// build error).
+// unsigned long long, not size_t: yap's u64 is 8 bytes on every target, size_t only 4 under wasm32.
 __attribute__((visibility("default")))
-void * clay_malloc(long long size) {
+void * clay_malloc(unsigned long long size) {
     return malloc((size_t)size);
 }
 

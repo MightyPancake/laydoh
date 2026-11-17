@@ -2,8 +2,6 @@ import laydoh
 import io
 
 i32 fn main() {
-    i32 min_size;
-    min_size = laydoh->Clay_MinMemorySize();
-    io->printf:(c"min memory size: %d\n", {min_size});
+    printf:(c"min memory size: %u\n", {Clay_MinMemorySize()});
     ret 0;
 }

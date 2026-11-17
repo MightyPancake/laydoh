@@ -14,7 +14,7 @@
 
 const DRAW_RECT = 1;
 const DRAW_TEXT = 2;
-const DRAW_COMMAND_SIZE = 36; // must match demo_wasm.yp's scratch-buffer layout
+const DRAW_COMMAND_SIZE = 36; // must match demo_wasm.yp's draw-command layout
 
 const stage = document.getElementById("stage"); // real overflow-y: auto viewport, native scroll
 const content = document.getElementById("content"); // sized to Clay's own content height every frame
@@ -56,8 +56,8 @@ function renderStage(commands) {
   const rects = commands.filter((c) => c.type === DRAW_RECT);
   const texts = commands.filter((c) => c.type === DRAW_TEXT);
 
-  // Clay's root element is FIT-sized to its true content height now (see
-  // demo_wasm.yp header comment) instead of being clamped to the viewport,
+  // Clay's root element is FIT-sized to its true content height instead of
+  // being clamped to the viewport,
   // so its own bounding box already tells us exactly how tall #content needs
   // to be for #stage's native overflow-y: auto to have something real to
   // scroll -- no separate "measure the content" step needed, just track the
@@ -108,7 +108,7 @@ function currentSize() {
 // Clay_SetPointerState/Clay_UpdateScrollContainers by hand every frame
 // (modeled on that site's CANVAS renderer mode instead, the wrong
 // reference for a div-based renderer) and felt jagged on real mobile touch
-// scrolling; see demo_wasm.yp's header comment for the full story.
+// scrolling.
 
 let lastTime = performance.now();
 

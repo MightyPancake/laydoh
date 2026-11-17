@@ -4,51 +4,31 @@
 // __attribute__((__packed__))` on gcc/clang), which stores them in a single
 // byte instead of the compiler's default (4-byte) enum representation. yap's
 // `enum` has no way to request that packing, so any struct field whose real
-// C type is one of those packed enums is declared here as plain `byte`
+// C type is one of those packed enums is declared here as plain `u8`
 // instead of the named enum type -- matching Clay's actual in-memory layout
 // bit for bit. (The two enums clay.h itself leaves unpacked, Clay_TransitionState
 // and Clay_TransitionProperty, keep their real enum type below.) Compare/assign
-// these fields with plain integer literals matching each enum's declaration
-// order (e.g. commandType: NONE=0, RECTANGLE=1, BORDER=2, TEXT=3, IMAGE=4,
-// SCISSOR_START=5, SCISSOR_END=6, OVERLAY_COLOR_START=7, OVERLAY_COLOR_END=8,
-// CUSTOM=9) -- yap also has no surface syntax yet to reference an enum
-// variant by name as a value, only to cast an int literal to the enum type.
-//
-// clay.h also has a number of real `uint16_t`/`int16_t` fields (Padding,
-// BorderWidth, childGap, TextElementConfig's font metrics, zIndex, ...), and
-// yap has no 16-bit integer primitive at all (only byte/i32/u32/i64/u64/f32/
-// f64) -- bindgen silently widened every one of these to `i32`, which is a
-// real struct-layout bug, not just a range mismatch: it shifts every field
-// declared after the widened one by 2 bytes relative to Clay's actual memory
-// layout, corrupting reads through the real struct built by wrapper.c. Each
-// such field is instead declared here as two `byte` fields, `<name>_lo` and
-// `<name>_hi` (little-endian, matching x86-64), giving the exact same total
-// size as the real field with no extra padding -- reconstruct the value as
-// `lo | (hi << 8)`, or just use the `set_*`/`*_all` constructor helpers below
-// which do this in C and never expose the halves. This does not change how
-// these structs are passed by value across the yap/wrapper.c boundary: the
-// x86-64 SysV ABI classifies small all-integer aggregates by size alone, so
-// "4 uint16_t" and "8 byte" fields both fall in the same one-eightbyte
-// INTEGER class and are passed/returned identically.
+// these fields through the enum, e.g. `cmd.commandType ==
+// Clay_RenderCommandType.CLAY_RENDER_COMMAND_TYPE_TEXT.(u8)`.
 
 bind type Clay_Context
 
 bind struct Clay_String {
     bool isStaticallyAllocated,
     i32 length,
-    byte@ chars,
+    u8@ chars,
 }
 
 bind struct Clay_StringSlice {
     i32 length,
-    byte@ chars,
-    byte@ baseChars,
+    u8@ chars,
+    u8@ baseChars,
 }
 
 bind struct Clay_Arena {
-    i64 nextAllocation,
-    i64 capacity,
-    byte@ memory,
+    u64 nextAllocation,
+    u64 capacity,
+    u8@ memory,
 }
 
 bind struct Clay_Dimensions {
@@ -76,9 +56,9 @@ bind struct Clay_BoundingBox {
 }
 
 bind struct Clay_ElementId {
-    i32 id,
-    i32 offset,
-    i32 baseId,
+    u32 id,
+    u32 offset,
+    u32 baseId,
     Clay_String stringId,
 }
 
@@ -120,8 +100,8 @@ bind enum Clay__SizingType {
 }
 
 bind struct Clay_ChildAlignment {
-    byte x,
-    byte y,
+    u8 x,
+    u8 y,
 }
 
 bind struct Clay_SizingMinMax {
@@ -134,7 +114,7 @@ bind struct Clay_SizingAxis {
         Clay_SizingMinMax minMax,
         f32 percent,
     } size,
-    byte type,
+    u8 type,
 }
 
 bind struct Clay_Sizing {
@@ -143,23 +123,18 @@ bind struct Clay_Sizing {
 }
 
 bind struct Clay_Padding {
-    byte left_lo, // uint16_t left, low byte (little-endian)
-    byte left_hi, // uint16_t left, high byte
-    byte right_lo, // uint16_t right, low byte (little-endian)
-    byte right_hi, // uint16_t right, high byte
-    byte top_lo, // uint16_t top, low byte (little-endian)
-    byte top_hi, // uint16_t top, high byte
-    byte bottom_lo, // uint16_t bottom, low byte (little-endian)
-    byte bottom_hi, // uint16_t bottom, high byte
+    u16 left,
+    u16 right,
+    u16 top,
+    u16 bottom,
 }
 
 bind struct Clay_LayoutConfig {
     Clay_Sizing sizing,
     Clay_Padding padding,
-    byte childGap_lo, // uint16_t childGap, low byte (little-endian)
-    byte childGap_hi, // uint16_t childGap, high byte
+    u16 childGap,
     Clay_ChildAlignment childAlignment,
-    byte layoutDirection,
+    u8 layoutDirection,
 }
 
 bind enum Clay_TextElementConfigWrapMode {
@@ -177,16 +152,12 @@ bind enum Clay_TextAlignment {
 bind struct Clay_TextElementConfig {
     none@ userData,
     Clay_Color textColor,
-    byte fontId_lo, // uint16_t fontId, low byte (little-endian)
-    byte fontId_hi, // uint16_t fontId, high byte
-    byte fontSize_lo, // uint16_t fontSize, low byte (little-endian)
-    byte fontSize_hi, // uint16_t fontSize, high byte
-    byte letterSpacing_lo, // uint16_t letterSpacing, low byte (little-endian)
-    byte letterSpacing_hi, // uint16_t letterSpacing, high byte
-    byte lineHeight_lo, // uint16_t lineHeight, low byte (little-endian)
-    byte lineHeight_hi, // uint16_t lineHeight, high byte
-    byte wrapMode,
-    byte textAlignment,
+    u16 fontId,
+    u16 fontSize,
+    u16 letterSpacing,
+    u16 lineHeight,
+    u8 wrapMode,
+    u8 textAlignment,
 }
 
 bind struct Clay_AspectRatioElementConfig {
@@ -210,8 +181,8 @@ bind enum Clay_FloatingAttachPointType {
 }
 
 bind struct Clay_FloatingAttachPoints {
-    byte element,
-    byte parent,
+    u8 element,
+    u8 parent,
 }
 
 bind enum Clay_PointerCaptureMode {
@@ -234,13 +205,12 @@ bind enum Clay_FloatingClipToElement {
 bind struct Clay_FloatingElementConfig {
     Clay_Vector2 offset,
     Clay_Dimensions expand,
-    i32 parentId,
-    byte zIndex_lo, // uint16_t zIndex, low byte (little-endian)
-    byte zIndex_hi, // uint16_t zIndex, high byte
+    u32 parentId,
+    i16 zIndex,
     Clay_FloatingAttachPoints attachPoints,
-    byte pointerCaptureMode,
-    byte attachTo,
-    byte clipTo,
+    u8 pointerCaptureMode,
+    u8 attachTo,
+    u8 clipTo,
 }
 
 bind struct Clay_CustomElementConfig {
@@ -254,16 +224,11 @@ bind struct Clay_ClipElementConfig {
 }
 
 bind struct Clay_BorderWidth {
-    byte left_lo, // uint16_t left, low byte (little-endian)
-    byte left_hi, // uint16_t left, high byte
-    byte right_lo, // uint16_t right, low byte (little-endian)
-    byte right_hi, // uint16_t right, high byte
-    byte top_lo, // uint16_t top, low byte (little-endian)
-    byte top_hi, // uint16_t top, high byte
-    byte bottom_lo, // uint16_t bottom, low byte (little-endian)
-    byte bottom_hi, // uint16_t bottom, high byte
-    byte betweenChildren_lo, // uint16_t betweenChildren, low byte (little-endian)
-    byte betweenChildren_hi, // uint16_t betweenChildren, high byte
+    u16 left,
+    u16 right,
+    u16 top,
+    u16 bottom,
+    u16 betweenChildren,
 }
 
 bind struct Clay_BorderElementConfig {
@@ -338,29 +303,25 @@ bind struct Clay_TransitionElementConfig {
     (bool fn Clay_TransitionCallbackArguments) handler,
     f32 duration,
     Clay_TransitionProperty properties,
-    byte interactionHandling,
+    u8 interactionHandling,
     struct {
         (Clay_TransitionData fn Clay_TransitionData, Clay_TransitionProperty) setInitialState,
-        byte trigger,
+        u8 trigger,
     } enter,
     struct {
         (Clay_TransitionData fn Clay_TransitionData, Clay_TransitionProperty) setFinalState,
-        byte trigger,
-        byte siblingOrdering,
+        u8 trigger,
+        u8 siblingOrdering,
     } exit,
 }
 
 bind struct Clay_TextRenderData {
     Clay_StringSlice stringContents,
     Clay_Color textColor,
-    byte fontId_lo, // uint16_t fontId, low byte (little-endian)
-    byte fontId_hi, // uint16_t fontId, high byte
-    byte fontSize_lo, // uint16_t fontSize, low byte (little-endian)
-    byte fontSize_hi, // uint16_t fontSize, high byte
-    byte letterSpacing_lo, // uint16_t letterSpacing, low byte (little-endian)
-    byte letterSpacing_hi, // uint16_t letterSpacing, high byte
-    byte lineHeight_lo, // uint16_t lineHeight, low byte (little-endian)
-    byte lineHeight_hi, // uint16_t lineHeight, high byte
+    u16 fontId,
+    u16 fontSize,
+    u16 letterSpacing,
+    u16 lineHeight,
 }
 
 bind struct Clay_RectangleRenderData {
@@ -435,10 +396,9 @@ bind struct Clay_RenderCommand {
     Clay_BoundingBox boundingBox,
     Clay_RenderData renderData,
     none@ userData,
-    i32 id,
-    byte zIndex_lo, // uint16_t zIndex, low byte (little-endian)
-    byte zIndex_hi, // uint16_t zIndex, high byte
-    byte commandType,
+    u32 id,
+    i16 zIndex,
+    u8 commandType,
 }
 
 bind struct Clay_RenderCommandArray {
@@ -456,7 +416,7 @@ bind enum Clay_PointerDataInteractionState {
 
 bind struct Clay_PointerData {
     Clay_Vector2 position,
-    byte state,
+    u8 state,
 }
 
 bind struct Clay_ElementDeclaration {
@@ -488,7 +448,7 @@ bind enum Clay_ErrorType {
 }
 
 bind struct Clay_ErrorData {
-    byte errorType,
+    u8 errorType,
     Clay_String errorText,
     none@ userData,
 }
@@ -498,8 +458,8 @@ bind struct Clay_ErrorHandler {
     none@ userData,
 }
 
-i32 fn Clay_MinMemorySize();
-Clay_Arena fn Clay_CreateArenaWithCapacityAndMemory(i64 capacity, none@ memory);
+u32 fn Clay_MinMemorySize();
+Clay_Arena fn Clay_CreateArenaWithCapacityAndMemory(u64 capacity, none@ memory);
 none fn Clay_SetPointerState(Clay_Vector2 position, bool pointerDown);
 Clay_PointerData fn Clay_GetPointerState();
 Clay_Context@ fn Clay_Initialize(Clay_Arena arena, Clay_Dimensions layoutDimensions, Clay_ErrorHandler errorHandler);
@@ -511,9 +471,9 @@ none fn Clay_SetLayoutDimensions(Clay_Dimensions dimensions);
 Clay_Dimensions fn Clay_GetLayoutDimensions();
 none fn Clay_BeginLayout();
 Clay_RenderCommandArray fn Clay_EndLayout(f32 deltaTime);
-i32 fn Clay_GetOpenElementId();
+u32 fn Clay_GetOpenElementId();
 Clay_ElementId fn Clay_GetElementId(Clay_String idString);
-Clay_ElementId fn Clay_GetElementIdWithIndex(Clay_String idString, i32 index);
+Clay_ElementId fn Clay_GetElementIdWithIndex(Clay_String idString, u32 index);
 Clay_ElementData fn Clay_GetElementData(Clay_ElementId id);
 bool fn Clay_Hovered();
 none fn Clay_OnHover((none fn Clay_ElementId, Clay_PointerData, none@) onHoverFunction, none@ userData);
@@ -521,7 +481,7 @@ bool fn Clay_PointerOver(Clay_ElementId elementId);
 Clay_ElementIdArray fn Clay_GetPointerOverIds();
 Clay_ScrollContainerData fn Clay_GetScrollContainerData(Clay_ElementId id);
 none fn Clay_SetMeasureTextFunction((Clay_Dimensions fn Clay_StringSlice, Clay_TextElementConfig@, none@) measureTextFunction, none@ userData);
-none fn Clay_SetQueryScrollOffsetFunction((Clay_Vector2 fn i32, none@) queryScrollOffsetFunction, none@ userData);
+none fn Clay_SetQueryScrollOffsetFunction((Clay_Vector2 fn u32, none@) queryScrollOffsetFunction, none@ userData);
 Clay_RenderCommand@ fn Clay_RenderCommandArray_Get(Clay_RenderCommandArray@ array, i32 index);
 none fn Clay_SetDebugModeEnabled(bool enabled);
 bool fn Clay_IsDebugModeEnabled();
@@ -537,8 +497,8 @@ none fn Clay__OpenElementWithId(Clay_ElementId elementId);
 none fn Clay__ConfigureOpenElement(Clay_ElementDeclaration config);
 none fn Clay__ConfigureOpenElementPtr(Clay_ElementDeclaration@ config);
 none fn Clay__CloseElement();
-Clay_ElementId fn Clay__HashString(Clay_String key, i32 seed);
-Clay_ElementId fn Clay__HashStringWithOffset(Clay_String key, i32 offset, i32 seed);
+Clay_ElementId fn Clay__HashString(Clay_String key, u32 seed);
+Clay_ElementId fn Clay__HashStringWithOffset(Clay_String key, u32 offset, u32 seed);
 none fn Clay__OpenTextElement(Clay_String text, Clay_TextElementConfig textConfig);
 
 // Hand-written ergonomic helpers -- see wrapper.c. Not part of clay.h itself;
@@ -547,7 +507,7 @@ none fn Clay__OpenTextElement(Clay_String text, Clay_TextElementConfig textConfi
 // that yap has no equivalent surface syntax for.
 Clay_ElementDeclaration fn zero_element_declaration();
 Clay_TextElementConfig fn zero_text_element_config();
-Clay_String fn string_from_cstr(byte@ s);
+Clay_String fn string_from_cstr(u8@ s);
 Clay_SizingAxis fn sizing_fixed(f32 size);
 Clay_SizingAxis fn sizing_grow(f32 min, f32 max);
 Clay_SizingAxis fn sizing_fit(f32 min, f32 max);
@@ -557,13 +517,6 @@ Clay_Padding fn padding_all(i32 padding);
 Clay_Padding fn padding_xy(i32 horizontal, i32 vertical);
 Clay_Color fn color(f32 r, f32 g, f32 b, f32 a);
 
-// Setters for the real uint16_t/int16_t fields split into _lo/_hi byte pairs
-// above -- these hide that split entirely.
-none fn set_child_gap(Clay_LayoutConfig@ layout, i32 gap);
-none fn set_font_size(Clay_TextElementConfig@ cfg, i32 font_size);
-none fn set_border_widths(Clay_BorderWidth@ w, i32 left, i32 right, i32 top, i32 bottom, i32 between_children);
-none fn set_floating_z_index(Clay_FloatingElementConfig@ f, i32 z);
-
 // Thin malloc passthrough -- see wrapper.c for why this exists instead of
 // `import stdlib`.
-none@ fn malloc(i64 size);
+none@ fn malloc(u64 size);

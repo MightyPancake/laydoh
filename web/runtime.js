@@ -22,8 +22,7 @@
 
   const DRAW_RECT = 1;
   const DRAW_TEXT = 2;
-  // Must match the packed scratch-buffer layout the yap side writes (see
-  // demo_wasm.yp's write_rect_command/write_text_command).
+  // Must match the packed draw-command layout the yap side writes.
   const DRAW_COMMAND_SIZE = 36;
 
   function cssColor(r, g, b, a) {
